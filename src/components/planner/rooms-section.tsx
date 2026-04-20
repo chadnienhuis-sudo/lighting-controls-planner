@@ -490,14 +490,28 @@ function InheritSelect({
         <SelectTrigger className="mt-1 w-full">
           <SelectValue>
             {() =>
-              isInherited
-                ? `Inherit from group${groupHint ? ` — ${groupHint}` : ""}`
-                : selectedLabel ?? "Select…"
+              isInherited ? (
+                <span>
+                  {groupHint ?? "—"}
+                  <span className="ml-1.5 text-xs text-muted-foreground">
+                    (inherited from group)
+                  </span>
+                </span>
+              ) : (
+                <span>{selectedLabel ?? "Select…"}</span>
+              )
             }
           </SelectValue>
         </SelectTrigger>
         <SelectContent>
-          <SelectItem value="inherit">Inherit from group{groupHint ? ` — ${groupHint}` : ""}</SelectItem>
+          <SelectItem value="inherit">
+            <span>
+              {groupHint ?? "—"}
+              <span className="ml-1.5 text-xs text-muted-foreground">
+                (inherited from group)
+              </span>
+            </span>
+          </SelectItem>
           {visibleOptions.map((o) => (
             <SelectItem key={o.value} value={o.value}>
               {o.label}
