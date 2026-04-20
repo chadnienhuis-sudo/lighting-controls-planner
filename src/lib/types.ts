@@ -35,15 +35,34 @@ export type OutdoorZoneType =
 export type LightingZone = "LZ0" | "LZ1" | "LZ2" | "LZ3" | "LZ4";
 
 /**
- * A single ASHRAE control requirement, identified by its section reference.
- * Requirements are data, not code — paraphrased per fair use, with the section
- * citation so users can verify against the standard.
+ * The nine control requirement columns of ASHRAE 90.1-2019 / Michigan
+ * Commercial Energy Code 2019 Table 9.6.1 (columns a–i in §9.4.1.1).
+ * Per space type, each column is either REQ, ADD1, ADD2, or blank.
+ */
+export type ControlColumnId =
+  | "local_control" // a  §9.4.1.1(a)
+  | "restricted_manual_on" // b  §9.4.1.1(b)
+  | "restricted_partial_auto_on" // c  §9.4.1.1(c)
+  | "bilevel" // d  §9.4.1.1(d)
+  | "daylight_sidelighting" // e  §9.4.1.1(e)
+  | "daylight_toplighting" // f  §9.4.1.1(f)
+  | "auto_partial_off" // g  §9.4.1.1(g)
+  | "auto_full_off" // h  §9.4.1.1(h)
+  | "scheduled_shutoff"; // i  §9.4.1.1(i)
+
+export type ControlApplicability = "REQ" | "ADD1" | "ADD2" | null;
+
+/**
+ * A single ASHRAE control requirement (column from Table 9.6.1 or other
+ * standalone requirement like §8.4.2 plug load). Requirements are data, not
+ * code — paraphrased per fair use, with the section citation so users can
+ * verify against the standard.
  */
 export interface Requirement {
   id: string;
   source: CodeVersion;
-  section: string; // e.g., "9.4.1.1(d)"
-  shortName: string; // e.g., "Manual on"
+  section: string; // e.g., "9.4.1.1(d)" or "8.4.2"
+  shortName: string; // e.g., "Bilevel control"
   description: string; // paraphrased requirement text
   applicabilityNotes?: string;
   exceptionReferences?: string[]; // deferred — just the references for the MVP
@@ -65,17 +84,25 @@ export interface IesTarget {
 }
 
 /**
- * An ASHRAE 90.1 space type (Table 9.6.1 for interior; §9.4.2 for outdoor).
+ * An ASHRAE 90.1 / MI 2019 space type (Table 9.6.1 for interior).
  * This is library/reference data, not per-project.
+ *
+ * `controls` maps each of the nine §9.4.1.1 control columns to REQ / ADD1 /
+ * ADD2 / null (blank) per Table 9.6.1. `plugLoadControl842` flags whether
+ * §8.4.2 automatic receptacle control applies to this space type (offices,
+ * conference, print/copy, break, classrooms, workstations per Chapter 8).
  */
 export interface SpaceType {
-  id: string; // e.g., "office_enclosed"
-  name: string; // e.g., "Office — Enclosed (private)"
+  id: string;
+  name: string;
   category: SpaceCategory;
   interiorOrOutdoor: "interior" | "outdoor";
-  baseRequirementIds: string[];
+  lpdWattsPerSqft: number; // Table 9.6.1 "LPD Allowance (W/ft²)"
+  controls: Record<ControlColumnId, ControlApplicability>;
+  plugLoadControl842: boolean; // §8.4.2 applies
   iesTargetId: string;
   description?: string;
+  note?: string; // footnote or caveat from Table 9.6.1
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

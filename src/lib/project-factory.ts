@@ -1,4 +1,5 @@
 import { nanoid } from "nanoid";
+import { autoGenerateGroups } from "@/lib/functional-groups";
 import type { BuildingTemplate, Project, Room } from "@/lib/types";
 
 export interface NewProjectInput {
@@ -37,9 +38,17 @@ export function createProjectFromTemplate(template: BuildingTemplate, input: New
       notes: tr.notes,
     }));
   });
+  const functionalGroups = autoGenerateGroups(rooms, {
+    occupancyStrategy: template.defaults.occupancyStrategy,
+  });
+  const roomsWithGroups: Room[] = rooms.map((r) => {
+    const g = functionalGroups.find((fg) => fg.spaceTypeId === r.spaceTypeId);
+    return g ? { ...r, functionalGroupId: g.id } : r;
+  });
+
   return {
     ...base,
-    rooms,
+    rooms: roomsWithGroups,
     outdoorScope: {
       zones: Object.fromEntries(
         Object.entries(template.typicalOutdoorZones).map(([k, v]) => [
@@ -48,6 +57,7 @@ export function createProjectFromTemplate(template: BuildingTemplate, input: New
         ]),
       ),
     },
+    functionalGroups,
     systemArchitecture: template.defaults.systemArchitecture,
     commissioning: template.defaults.commissioning,
   };

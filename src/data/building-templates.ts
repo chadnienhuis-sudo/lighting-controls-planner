@@ -15,10 +15,10 @@ export const BUILDING_TEMPLATES: BuildingTemplate[] = [
     description:
       "Distribution center or storage warehouse. Bulk storage aisles, loading docks, limited office space.",
     typicalRooms: [
-      { name: "Warehouse Storage", typicalCount: 1, typicalSizeSqft: 40000, spaceTypeId: "warehouse_storage" },
-      { name: "Shipping/Receiving Office", typicalCount: 1, typicalSizeSqft: 200, spaceTypeId: "office_enclosed" },
-      { name: "Breakroom", typicalCount: 1, typicalSizeSqft: 300, spaceTypeId: "office_open" }, // TODO: add breakroom space type
-      { name: "Restroom", typicalCount: 2, typicalSizeSqft: 120, spaceTypeId: "restroom" },
+      { name: "Warehouse Storage", typicalCount: 1, typicalSizeSqft: 40000, spaceTypeId: "warehouse_bulk" },
+      { name: "Shipping/Receiving Office", typicalCount: 1, typicalSizeSqft: 200, spaceTypeId: "office_enclosed_small" },
+      { name: "Breakroom", typicalCount: 1, typicalSizeSqft: 300, spaceTypeId: "lounge_breakroom_all_other" },
+      { name: "Restroom", typicalCount: 2, typicalSizeSqft: 120, spaceTypeId: "restroom_all_other" },
     ],
     typicalOutdoorZones: {
       parking: { lightingZone: "LZ2" },

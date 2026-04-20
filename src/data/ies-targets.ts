@@ -53,7 +53,15 @@ export const IES_TARGETS: IesTarget[] = [
     verticalFc: 10,
     notes: "Vertical fc is important for label/SKU reading on shelving.",
   },
-  // TODO: seed remaining targets to match the full space-type library.
+  { id: "ies_lobby", source: "IES-Handbook", horizontalFc: 15, uniformityRatio: 0.4 },
+  { id: "ies_assembly", source: "IES-Handbook", horizontalFc: 10, uniformityRatio: 0.4, notes: "Varies heavily by use; check IES Handbook application category." },
+  { id: "ies_classroom", source: "IES-RP-3", horizontalFc: 30, uniformityRatio: 0.6, verticalFc: 10, notes: "IES RP-3 K–12 classroom recommendation." },
+  { id: "ies_dining", source: "IES-Handbook", horizontalFc: 10, uniformityRatio: 0.4 },
+  { id: "ies_mechanical", source: "IES-Handbook", horizontalFc: 30, uniformityRatio: 0.4 },
+  { id: "ies_food_prep", source: "IES-Handbook", horizontalFc: 50, uniformityRatio: 0.5 },
+  { id: "ies_healthcare", source: "IES-RP-5", horizontalFc: 30, uniformityRatio: 0.5, notes: "General exam / care area baseline; task-specific recommendations higher (see RP-5)." },
+  { id: "ies_breakroom", source: "IES-Handbook", horizontalFc: 20, uniformityRatio: 0.4 },
+  // TODO: seed finer-grained targets to match specific space-type nuances (RP-1 private vs open office separation is already present; healthcare and industrial still coarse).
 ];
 
 export function iesTargetById(id: string): IesTarget | undefined {

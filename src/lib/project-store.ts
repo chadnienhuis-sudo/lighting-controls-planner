@@ -3,6 +3,7 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import { nanoid } from "nanoid";
+import { regenerateFunctionalGroups } from "@/lib/functional-groups";
 import type {
   Project,
   Room,
@@ -26,6 +27,8 @@ interface ProjectState {
   removeRoom: (id: string) => void;
   setOutdoorZone: (type: OutdoorZoneType, config: OutdoorZoneConfig | null) => void;
   setFunctionalGroups: (groups: FunctionalGroup[]) => void;
+  updateFunctionalGroup: (id: string, patch: Partial<FunctionalGroup>) => void;
+  regenerateGroups: () => void;
   updateBasisOfDesign: (patch: Partial<BasisOfDesignInputs>) => void;
   updateSystemArchitecture: (patch: Partial<SystemArchitectureInputs>) => void;
   updateCommissioning: (patch: Partial<CommissioningInputs>) => void;
@@ -86,6 +89,29 @@ export const useProjectStore = create<ProjectState>()(
 
       setFunctionalGroups: (groups) =>
         set((s) => (s.project ? { project: touch({ ...s.project, functionalGroups: groups }) } : s)),
+
+      updateFunctionalGroup: (id, patch) =>
+        set((s) => {
+          if (!s.project) return s;
+          return {
+            project: touch({
+              ...s.project,
+              functionalGroups: s.project.functionalGroups.map((g) =>
+                g.id === id ? { ...g, ...patch } : g,
+              ),
+            }),
+          };
+        }),
+
+      regenerateGroups: () =>
+        set((s) => {
+          if (!s.project) return s;
+          const { groups, roomGroupIds } = regenerateFunctionalGroups(s.project);
+          const rooms = s.project.rooms.map((r) =>
+            roomGroupIds[r.id] ? { ...r, functionalGroupId: roomGroupIds[r.id] } : { ...r, functionalGroupId: undefined },
+          );
+          return { project: touch({ ...s.project, rooms, functionalGroups: groups }) };
+        }),
 
       updateBasisOfDesign: (patch) =>
         set((s) =>

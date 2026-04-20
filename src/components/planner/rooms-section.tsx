@@ -35,6 +35,14 @@ export function RoomsSection() {
     () => (project?.rooms ?? []).reduce((sum, r) => sum + (r.sizeSqft || 0), 0),
     [project?.rooms],
   );
+  const totalAllowanceW = useMemo(
+    () =>
+      (project?.rooms ?? []).reduce((sum, r) => {
+        const st = spaceTypeById(r.spaceTypeId);
+        return sum + (r.sizeSqft || 0) * (st?.lpdWattsPerSqft ?? 0);
+      }, 0),
+    [project?.rooms],
+  );
 
   if (!project) return null;
 
@@ -92,8 +100,13 @@ export function RoomsSection() {
             <span>
               {project.rooms.length} room{project.rooms.length === 1 ? "" : "s"}
             </span>
-            <span>
-              Total: <span className="tabular-nums text-foreground font-medium">{totalSqft.toLocaleString()}</span> sf
+            <span className="flex items-center gap-4">
+              <span>
+                Area: <span className="tabular-nums text-foreground font-medium">{totalSqft.toLocaleString()}</span> sf
+              </span>
+              <span>
+                LPD allowance: <span className="tabular-nums text-foreground font-medium">{Math.round(totalAllowanceW).toLocaleString()}</span> W
+              </span>
             </span>
           </div>
         </div>
