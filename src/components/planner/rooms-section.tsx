@@ -324,6 +324,7 @@ function RoomOverridePanel({
           label="Daylight zone"
           value={daylightValue}
           groupHint={group.daylightZone ? "Yes" : "No"}
+          inheritEquivalent={group.daylightZone ? "yes" : "no"}
           options={[
             { value: "yes", label: "Yes (override)" },
             { value: "no", label: "No (override)" },
@@ -347,8 +348,9 @@ function RoomOverridePanel({
           groupHint={
             group.add1Selection
               ? requirementById(group.add1Selection)?.shortName
-              : "—"
+              : "None"
           }
+          inheritEquivalent={group.add1Selection ?? "none"}
           disabled={add1Options.length === 0}
           disabledNote={
             add1Options.length === 0
@@ -383,7 +385,12 @@ function RoomOverridePanel({
           groupHint={
             group.add2Selections && group.add2Selections[0]
               ? requirementById(group.add2Selections[0])?.shortName
-              : "—"
+              : "None"
+          }
+          inheritEquivalent={
+            group.add2Stacked
+              ? undefined // stacked group — every single-select override is meaningfully different
+              : group.add2Selections?.[0] ?? "none"
           }
           disabled={add2Options.length === 0}
           disabledNote={
@@ -434,6 +441,7 @@ function InheritSelect({
   label,
   value,
   groupHint,
+  inheritEquivalent,
   options,
   disabled,
   disabledNote,
@@ -443,6 +451,8 @@ function InheritSelect({
   label: string;
   value: string;
   groupHint?: string;
+  /** Value that, if picked, would be equivalent to inheriting — filtered out of the overrides list. */
+  inheritEquivalent?: string;
   options: { value: string; label: string }[];
   disabled?: boolean;
   disabledNote?: string;
@@ -450,6 +460,8 @@ function InheritSelect({
   onSelect: (v: string) => void;
 }) {
   const isInherited = value === "inherit";
+  // Hide any option whose value matches what inheritance would produce.
+  const visibleOptions = options.filter((o) => o.value !== inheritEquivalent);
   const selectedLabel = options.find((o) => o.value === value)?.label;
   return (
     <div>
@@ -467,7 +479,12 @@ function InheritSelect({
       </div>
       <Select
         value={value}
-        onValueChange={(v) => (v === "inherit" ? onInherit() : onSelect(v ?? "inherit"))}
+        onValueChange={(v) => {
+          if (v === "inherit" || !v) return onInherit();
+          // Safety net: if a user somehow picks the inherit-equivalent value, normalize to inherit.
+          if (v === inheritEquivalent) return onInherit();
+          onSelect(v);
+        }}
         disabled={disabled}
       >
         <SelectTrigger className="mt-1 w-full">
@@ -481,7 +498,7 @@ function InheritSelect({
         </SelectTrigger>
         <SelectContent>
           <SelectItem value="inherit">Inherit from group{groupHint ? ` — ${groupHint}` : ""}</SelectItem>
-          {options.map((o) => (
+          {visibleOptions.map((o) => (
             <SelectItem key={o.value} value={o.value}>
               {o.label}
             </SelectItem>
