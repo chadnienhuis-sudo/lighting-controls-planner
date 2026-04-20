@@ -50,6 +50,10 @@ export default function RootLayout({
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
+      <head>
+        {/* Adobe Typekit: area-normal (body) + area-extended (headings) */}
+        <link rel="stylesheet" href="https://use.typekit.net/qnr5vtx.css" />
+      </head>
       <body className="min-h-full flex flex-col bg-background text-foreground">
         <SiteHeader />
         <main className="flex-1 flex flex-col">{children}</main>

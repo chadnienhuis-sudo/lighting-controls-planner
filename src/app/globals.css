@@ -20,9 +20,14 @@
 }
 
 body {
-  font-family: "Area", var(--font-sans), system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-family: "area-normal", var(--font-sans), system-ui, -apple-system, "Segoe UI", sans-serif;
   background-color: var(--color-sea-salt);
   color: var(--color-jet);
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: "area-extended", "area-normal", var(--font-sans), system-ui, sans-serif;
+  letter-spacing: -0.01em;
 }
 
 @theme inline {
