@@ -157,8 +157,12 @@ export interface OutdoorZoneConfig {
 
 /**
  * A functional group: a set of rooms that operate the same way.
- * Defined by ASHRAE space type + splitting factors (daylight, plug load, occupancy strategy).
- * Carries base requirements (inherited) + waivers + additions + designer choices.
+ * Defined by ASHRAE space type + splitting factors. Carries base requirements
+ * (inherited from Table 9.6.1) + ADD-set selections + waivers + additions +
+ * designer choices.
+ *
+ * Plug-load applicability is derived from the space type's §8.4.2 flag — not
+ * a splitting factor, since the code is the authority on whether §8.4.2 applies.
  */
 export interface FunctionalGroup {
   id: string;
@@ -167,8 +171,14 @@ export interface FunctionalGroup {
   spaceTypeId: string;
   // splitting factors
   daylightZone: boolean;
-  plugLoadControl: boolean;
-  occupancyStrategy: OccupancyStrategy;
+  // ADD1 set encodes occupancy strategy (§9.4.1.1(b) restricted-to-manual-on
+  // vs (c) restricted-to-partial-auto-on). ADD2 set encodes shutoff behavior
+  // (§9.4.1.1(h) auto-full-off vs (i) scheduled-shutoff vs (g) auto-partial-off).
+  // Table 9.6.1 requires at least one when present, so these behave as radios.
+  // add2Stacked: opt-in escape hatch to implement both ADD2 controls together.
+  add1Selection: ControlColumnId | null;
+  add2Selections: ControlColumnId[];
+  add2Stacked: boolean;
   // overrides (per §4.8 of the spec)
   waivers: Waiver[];
   additions: Addition[];

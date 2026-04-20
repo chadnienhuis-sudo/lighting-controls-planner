@@ -38,9 +38,7 @@ export function createProjectFromTemplate(template: BuildingTemplate, input: New
       notes: tr.notes,
     }));
   });
-  const functionalGroups = autoGenerateGroups(rooms, {
-    occupancyStrategy: template.defaults.occupancyStrategy,
-  });
+  const functionalGroups = autoGenerateGroups(rooms);
   const roomsWithGroups: Room[] = rooms.map((r) => {
     const g = functionalGroups.find((fg) => fg.spaceTypeId === r.spaceTypeId);
     return g ? { ...r, functionalGroupId: g.id } : r;

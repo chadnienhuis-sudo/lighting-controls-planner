@@ -8,8 +8,8 @@ import { roomsForGroup } from "@/lib/functional-groups";
 import { spaceTypeById, applicableRequirements } from "@/data/space-types";
 import { requirementById } from "@/data/requirements";
 import type {
+  ControlColumnId,
   FunctionalGroup,
-  OccupancyStrategy,
   SensorType,
   DimmingProtocol,
 } from "@/lib/types";
@@ -173,22 +173,6 @@ function GroupCard({
                 checked={group.daylightZone}
                 onChange={(v) => onChange({ daylightZone: v })}
               />
-              <Toggle
-                label="Plug load control (§8.4.2)"
-                hint="Automatic receptacle control required for this space."
-                checked={group.plugLoadControl}
-                onChange={(v) => onChange({ plugLoadControl: v })}
-              />
-              <LabeledSelect
-                label="Occupancy strategy"
-                value={group.occupancyStrategy}
-                onValueChange={(v) => onChange({ occupancyStrategy: v as OccupancyStrategy })}
-                options={[
-                  { value: "auto-on", label: "Auto-on (vacancy-activated)" },
-                  { value: "manual-on", label: "Manual-on (occupant turns on)" },
-                  { value: "partial-auto-on", label: "Partial auto-on (50% on entry)" },
-                ]}
-              />
             </div>
           </div>
 
@@ -251,27 +235,52 @@ function GroupCard({
               />
             )}
 
-            {add1Items.length > 0 && (
-              <RequirementGroup
-                heading="Pick ≥1 (ADD1 set)"
-                subheading="At least one of these must be implemented per Table 9.6.1. Uncheck the ones you&rsquo;re not using."
-                items={add1Items.map((i) => i.requirementId)}
-                waivedSet={waivedSet}
-                waivers={group.waivers}
-                onToggle={handleToggleRequirement}
-                toneClass="text-jet/80"
+            {add1Items.length > 0 ? (
+              <AddSetRadio
+                heading="Occupancy strategy (§9.4.1.1 ADD1)"
+                subheading="Code requires restricted-on behavior for this space type — pick one."
+                items={add1Items.map((i) => i.requirementId as ControlColumnId)}
+                selected={group.add1Selection ? [group.add1Selection] : []}
+                stacked={false}
+                onPick={(col) => onChange({ add1Selection: col })}
               />
+            ) : (
+              <div>
+                <SectionLabel>Occupancy strategy</SectionLabel>
+                <div className="mt-1 text-xs text-muted-foreground">
+                  Code does not restrict occupancy behavior for this space type — auto-on is acceptable.
+                </div>
+              </div>
             )}
 
             {add2Items.length > 0 && (
-              <RequirementGroup
-                heading="Pick ≥1 (ADD2 set)"
-                subheading="At least one of these must be implemented per Table 9.6.1. Uncheck the ones you&rsquo;re not using."
-                items={add2Items.map((i) => i.requirementId)}
-                waivedSet={waivedSet}
-                waivers={group.waivers}
-                onToggle={handleToggleRequirement}
-                toneClass="text-jet/80"
+              <AddSetRadio
+                heading="Shutoff behavior (§9.4.1.1 ADD2)"
+                subheading={
+                  group.add2Stacked
+                    ? "Stacking enabled — both controls implemented together. Uncommon; usually one is enough."
+                    : "Code requires at least one shutoff mechanism — pick one. Defaults to automatic full-off."
+                }
+                items={add2Items.map((i) => i.requirementId as ControlColumnId)}
+                selected={group.add2Selections}
+                stacked={group.add2Stacked}
+                onPick={(col) => onChange({ add2Selections: [col] })}
+                onToggleStack={(col, next) => {
+                  const cur = new Set(group.add2Selections);
+                  if (next) cur.add(col);
+                  else cur.delete(col);
+                  onChange({ add2Selections: Array.from(cur) });
+                }}
+                onToggleStackMode={() => {
+                  const nextStacked = !group.add2Stacked;
+                  // When returning to radio mode, collapse to the first selection or the preferred default.
+                  if (!nextStacked) {
+                    const preferred = group.add2Selections[0];
+                    onChange({ add2Stacked: false, add2Selections: preferred ? [preferred] : [] });
+                  } else {
+                    onChange({ add2Stacked: true });
+                  }
+                }}
               />
             )}
 
@@ -351,6 +360,82 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
     <div className="text-[10px] uppercase tracking-widest font-semibold text-muted-foreground">
       {children}
+    </div>
+  );
+}
+
+function AddSetRadio({
+  heading,
+  subheading,
+  items,
+  selected,
+  stacked,
+  onPick,
+  onToggleStack,
+  onToggleStackMode,
+}: {
+  heading: string;
+  subheading?: string;
+  items: ControlColumnId[];
+  selected: ControlColumnId[];
+  stacked: boolean;
+  onPick: (col: ControlColumnId) => void;
+  onToggleStack?: (col: ControlColumnId, next: boolean) => void;
+  onToggleStackMode?: () => void;
+}) {
+  const selectedSet = new Set(selected);
+  return (
+    <div>
+      <SectionLabel>{heading}</SectionLabel>
+      {subheading && <div className="mt-1 text-xs text-muted-foreground">{subheading}</div>}
+      <ul className="mt-2 space-y-2">
+        {items.map((col) => {
+          const req = requirementById(col);
+          if (!req) return null;
+          const isSelected = selectedSet.has(col);
+          return (
+            <li key={col} className="flex items-start gap-2.5 text-sm">
+              {stacked ? (
+                <Checkbox
+                  checked={isSelected}
+                  onCheckedChange={(v) => onToggleStack?.(col, Boolean(v))}
+                  className="mt-0.5"
+                />
+              ) : (
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={isSelected}
+                  onClick={() => onPick(col)}
+                  className={`mt-0.5 size-4 shrink-0 rounded-full border transition-colors ${
+                    isSelected
+                      ? "border-primary bg-primary/10 after:block after:size-1.5 after:rounded-full after:bg-primary after:mx-auto after:mt-[5px]"
+                      : "border-input hover:border-aplus-grey"
+                  }`}
+                />
+              )}
+              <div className="flex-1 min-w-0">
+                <div className={isSelected ? "" : "text-muted-foreground"}>
+                  <span className="font-medium">{req.shortName}</span>
+                  <span className="ml-1.5 text-xs text-muted-foreground">§{req.section}</span>
+                </div>
+                {isSelected && req.description && (
+                  <div className="mt-0.5 text-xs text-muted-foreground">{req.description}</div>
+                )}
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+      {onToggleStackMode && items.length > 1 && (
+        <button
+          type="button"
+          onClick={onToggleStackMode}
+          className="mt-2 text-[11px] text-muted-foreground hover:text-foreground underline underline-offset-2"
+        >
+          {stacked ? "Back to pick-one" : "Stack both (uncommon — both controls implemented)"}
+        </button>
+      )}
     </div>
   );
 }
