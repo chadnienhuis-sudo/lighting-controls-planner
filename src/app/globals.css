@@ -30,6 +30,13 @@ h1, h2, h3, h4, h5, h6 {
   letter-spacing: -0.01em;
 }
 
+/* Area's declared font metrics cause Chrome to clip glyph tops inside native
+   form controls (reproducible on input/select). Use Geist for form controls —
+   keeps Area for all display/body text without the clipping artifact. */
+input, select, textarea, [data-slot="select-value"] {
+  font-family: "Geist", system-ui, -apple-system, "Segoe UI Variable", "Segoe UI", sans-serif;
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
