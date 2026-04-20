@@ -43,3 +43,6 @@ next-env.d.ts
 # reference materials — keep README, ignore proprietary PDFs/assets
 /reference/*
 !/reference/README.md
+
+# Claude Code — per-user settings stay local; shared configs committed
+/.claude/settings.local.json
