@@ -113,6 +113,34 @@ function GroupCard({
     }
   }
 
+  function handleAhjOverrideSet(setKey: "add1_set" | "add2_set", setLabel: string) {
+    const reason = window.prompt(
+      `AHJ / owner override for ${setLabel}.\n\nReason (e.g. "Owner letter dated 2026-04-15: requested auto-on in warehouse" or "Grand Rapids BCD verbal OK")?`,
+    );
+    if (!reason) return;
+    const authority = window.prompt(
+      `Authority (optional — who issued the ruling / approval)?\nExamples: "Grand Rapids BCD", "Owner: ACME Co.", "Project PE: Jane Smith, PE."`,
+    ) ?? undefined;
+    onChange({
+      waivers: [
+        ...group.waivers.filter((w) => w.requirementId !== setKey),
+        {
+          requirementId: setKey,
+          reason,
+          authority: authority || undefined,
+          dateIso: new Date().toISOString(),
+        },
+      ],
+    });
+  }
+
+  function handleRestoreSet(setKey: "add1_set" | "add2_set") {
+    onChange({ waivers: group.waivers.filter((w) => w.requirementId !== setKey) });
+  }
+
+  const add1SetWaiver = group.waivers.find((w) => w.requirementId === "add1_set");
+  const add2SetWaiver = group.waivers.find((w) => w.requirementId === "add2_set");
+
   function handleAddAddition() {
     const featureName = window.prompt("Addition feature name (e.g. 'Dimming')?");
     if (!featureName) return;
@@ -236,14 +264,23 @@ function GroupCard({
             )}
 
             {add1Items.length > 0 ? (
-              <AddSetRadio
-                heading="Occupancy strategy (§9.4.1.1 ADD1)"
-                subheading="Code requires restricted-on behavior for this space type — pick one."
-                items={add1Items.map((i) => i.requirementId as ControlColumnId)}
-                selected={group.add1Selection ? [group.add1Selection] : []}
-                stacked={false}
-                onPick={(col) => onChange({ add1Selection: col })}
-              />
+              add1SetWaiver ? (
+                <AhjWaiverBanner
+                  heading="Occupancy strategy (§9.4.1.1 ADD1)"
+                  waiver={add1SetWaiver}
+                  onRestore={() => handleRestoreSet("add1_set")}
+                />
+              ) : (
+                <AddSetRadio
+                  heading="Occupancy strategy (§9.4.1.1 ADD1)"
+                  subheading="Code requires restricted-on behavior for this space type — pick one."
+                  items={add1Items.map((i) => i.requirementId as ControlColumnId)}
+                  selected={group.add1Selection ? [group.add1Selection] : []}
+                  stacked={false}
+                  onPick={(col) => onChange({ add1Selection: col })}
+                  onAhjOverride={() => handleAhjOverrideSet("add1_set", "ADD1 occupancy strategy")}
+                />
+              )
             ) : (
               <div>
                 <SectionLabel>Occupancy strategy</SectionLabel>
@@ -253,36 +290,43 @@ function GroupCard({
               </div>
             )}
 
-            {add2Items.length > 0 && (
-              <AddSetRadio
-                heading="Shutoff behavior (§9.4.1.1 ADD2)"
-                subheading={
-                  group.add2Stacked
-                    ? "Stacking enabled — both controls implemented together. Uncommon; usually one is enough."
-                    : "Code requires at least one shutoff mechanism — pick one. Defaults to automatic full-off."
-                }
-                items={add2Items.map((i) => i.requirementId as ControlColumnId)}
-                selected={group.add2Selections}
-                stacked={group.add2Stacked}
-                onPick={(col) => onChange({ add2Selections: [col] })}
-                onToggleStack={(col, next) => {
-                  const cur = new Set(group.add2Selections);
-                  if (next) cur.add(col);
-                  else cur.delete(col);
-                  onChange({ add2Selections: Array.from(cur) });
-                }}
-                onToggleStackMode={() => {
-                  const nextStacked = !group.add2Stacked;
-                  // When returning to radio mode, collapse to the first selection or the preferred default.
-                  if (!nextStacked) {
-                    const preferred = group.add2Selections[0];
-                    onChange({ add2Stacked: false, add2Selections: preferred ? [preferred] : [] });
-                  } else {
-                    onChange({ add2Stacked: true });
+            {add2Items.length > 0 &&
+              (add2SetWaiver ? (
+                <AhjWaiverBanner
+                  heading="Shutoff behavior (§9.4.1.1 ADD2)"
+                  waiver={add2SetWaiver}
+                  onRestore={() => handleRestoreSet("add2_set")}
+                />
+              ) : (
+                <AddSetRadio
+                  heading="Shutoff behavior (§9.4.1.1 ADD2)"
+                  subheading={
+                    group.add2Stacked
+                      ? "Stacking enabled — both controls implemented together. Uncommon; usually one is enough."
+                      : "Code requires at least one shutoff mechanism — pick one. Defaults to automatic full-off."
                   }
-                }}
-              />
-            )}
+                  items={add2Items.map((i) => i.requirementId as ControlColumnId)}
+                  selected={group.add2Selections}
+                  stacked={group.add2Stacked}
+                  onPick={(col) => onChange({ add2Selections: [col] })}
+                  onToggleStack={(col, next) => {
+                    const cur = new Set(group.add2Selections);
+                    if (next) cur.add(col);
+                    else cur.delete(col);
+                    onChange({ add2Selections: Array.from(cur) });
+                  }}
+                  onToggleStackMode={() => {
+                    const nextStacked = !group.add2Stacked;
+                    if (!nextStacked) {
+                      const preferred = group.add2Selections[0];
+                      onChange({ add2Stacked: false, add2Selections: preferred ? [preferred] : [] });
+                    } else {
+                      onChange({ add2Stacked: true });
+                    }
+                  }}
+                  onAhjOverride={() => handleAhjOverrideSet("add2_set", "ADD2 shutoff behavior")}
+                />
+              ))}
 
             {plugLoadItem && (
               <RequirementGroup
@@ -373,6 +417,7 @@ function AddSetRadio({
   onPick,
   onToggleStack,
   onToggleStackMode,
+  onAhjOverride,
 }: {
   heading: string;
   subheading?: string;
@@ -382,6 +427,7 @@ function AddSetRadio({
   onPick: (col: ControlColumnId) => void;
   onToggleStack?: (col: ControlColumnId, next: boolean) => void;
   onToggleStackMode?: () => void;
+  onAhjOverride?: () => void;
 }) {
   const selectedSet = new Set(selected);
   return (
@@ -427,15 +473,64 @@ function AddSetRadio({
           );
         })}
       </ul>
-      {onToggleStackMode && items.length > 1 && (
+      <div className="mt-2 flex items-center gap-4 text-[11px] text-muted-foreground">
+        {onToggleStackMode && items.length > 1 && (
+          <button
+            type="button"
+            onClick={onToggleStackMode}
+            className="hover:text-foreground underline underline-offset-2"
+          >
+            {stacked ? "Back to pick-one" : "Stack both (uncommon)"}
+          </button>
+        )}
+        {onAhjOverride && (
+          <button
+            type="button"
+            onClick={onAhjOverride}
+            className="hover:text-foreground underline underline-offset-2"
+          >
+            AHJ / owner override
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function AhjWaiverBanner({
+  heading,
+  waiver,
+  onRestore,
+}: {
+  heading: string;
+  waiver: { reason: string; authority?: string; dateIso?: string };
+  onRestore: () => void;
+}) {
+  const dateDisplay = waiver.dateIso ? new Date(waiver.dateIso).toISOString().slice(0, 10) : undefined;
+  return (
+    <div>
+      <SectionLabel>{heading}</SectionLabel>
+      <div className="mt-2 rounded-md border border-spark/40 bg-spark/10 p-3 text-sm">
+        <div className="font-medium text-jet">AHJ / owner override in effect</div>
+        <div className="mt-1 text-muted-foreground italic">{waiver.reason}</div>
+        {(waiver.authority || dateDisplay) && (
+          <div className="mt-1.5 text-xs text-muted-foreground">
+            {waiver.authority && <span>{waiver.authority}</span>}
+            {waiver.authority && dateDisplay && <span> · </span>}
+            {dateDisplay && <span>{dateDisplay}</span>}
+          </div>
+        )}
         <button
           type="button"
-          onClick={onToggleStackMode}
+          onClick={onRestore}
           className="mt-2 text-[11px] text-muted-foreground hover:text-foreground underline underline-offset-2"
         >
-          {stacked ? "Back to pick-one" : "Stack both (uncommon — both controls implemented)"}
+          Restore code-compliant picking
         </button>
-      )}
+      </div>
+      <div className="mt-2 text-[11px] text-muted-foreground">
+        Logged as a footnote in the exported narrative.
+      </div>
     </div>
   );
 }
