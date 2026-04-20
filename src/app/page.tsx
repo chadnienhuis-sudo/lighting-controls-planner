@@ -1,65 +1,137 @@
-import Image from "next/image";
+import Link from "next/link";
+import { buttonVariants } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 
-export default function Home() {
+export default function LandingPage() {
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
+    <>
+      {/* Hero */}
+      <section className="border-b border-border">
+        <div className="container mx-auto px-4 py-20 md:py-28 text-center">
+          <div className="text-xs uppercase tracking-widest text-muted-foreground mb-4">
+            A free tool from A+ Lighting
+          </div>
+          <h1 className="text-4xl md:text-6xl font-semibold tracking-tight max-w-3xl mx-auto">
+            Build ASHRAE-compliant lighting controls,{" "}
+            <span className="text-primary">room by room</span>.
           </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
+          <p className="mt-6 text-lg text-muted-foreground max-w-2xl mx-auto">
+            Enter your spaces, group them by function, and export a complete
+            controls narrative. ASHRAE 90.1-2019 interior + outdoor coverage.
+            IES illumination recommendations built in.
           </p>
+          <div className="mt-10 flex flex-col sm:flex-row gap-3 justify-center">
+            <Link href="/planner/new" className={buttonVariants({ size: "lg" })}>
+              Start a Project
+            </Link>
+            <Link
+              href="/resources"
+              className={buttonVariants({ size: "lg", variant: "outline" })}
+            >
+              Explore Resources
+            </Link>
+          </div>
+          <div className="mt-8 text-xs text-muted-foreground max-w-md mx-auto">
+            Design aid — not a compliance certification. Verify outputs with
+            your AHJ and licensed engineer.
+          </div>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
+      </section>
+
+      {/* Value props */}
+      <section className="container mx-auto px-4 py-16">
+        <div className="grid gap-6 md:grid-cols-3">
+          <Card>
+            <CardHeader>
+              <CardTitle>Room-by-room design</CardTitle>
+            </CardHeader>
+            <CardContent className="text-sm text-muted-foreground">
+              Enter your spaces or start from a building template. The tool
+              groups rooms by function — every group gets a plain-English
+              narrative, code requirements, and IES illumination targets.
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle>ASHRAE 90.1 + IES</CardTitle>
+            </CardHeader>
+            <CardContent className="text-sm text-muted-foreground">
+              Full Table 9.6.1 coverage of interior space types, plus
+              project-level outdoor controls for parking, wall packs, canopies,
+              and grounds. IES RP-1, RP-3, and RP-28 illumination targets
+              included.
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle>Export a real deliverable</CardTitle>
+            </CardHeader>
+            <CardContent className="text-sm text-muted-foreground">
+              Generate a complete controls doc — basis of design, system
+              architecture, functional group sequences, room schedule,
+              commissioning notes, and glossary — ready to hand to your
+              contractor.
+            </CardContent>
+          </Card>
+        </div>
+      </section>
+
+      {/* How it works */}
+      <section className="border-y border-border bg-muted/30">
+        <div className="container mx-auto px-4 py-16">
+          <h2 className="text-2xl md:text-3xl font-semibold text-center mb-12">
+            How it works
+          </h2>
+          <div className="grid gap-8 md:grid-cols-3 max-w-5xl mx-auto">
+            <HowStep
+              n={1}
+              title="Enter your rooms"
+              body="Start blank or pick a building template (Warehouse, Office, School, Retail, Light Industrial). Add each space with room number, name, size, and ASHRAE space type."
             />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+            <HowStep
+              n={2}
+              title="Refine functional groups"
+              body="The tool groups rooms with the same behavior. Split by daylight zone, plug load, or occupancy strategy. Waive a code requirement with a logged reason, add beyond-code features, or pick sensor/dimming types."
+            />
+            <HowStep
+              n={3}
+              title="Export the deliverable"
+              body="Generate a complete controls narrative PDF you can hand to your contractor or owner. Free, no account needed. Premium tier for A+ Lighting customers adds manufacturer product mapping and saved projects."
+            />
+          </div>
         </div>
-      </main>
+      </section>
+
+      {/* CTA */}
+      <section className="container mx-auto px-4 py-20 text-center">
+        <h2 className="text-2xl md:text-3xl font-semibold">
+          Ready to plan your controls?
+        </h2>
+        <p className="mt-4 text-muted-foreground max-w-xl mx-auto">
+          Free to use. No account required. Built by the lighting specialists
+          at A+ Lighting.
+        </p>
+        <div className="mt-8">
+          <Link href="/planner/new" className={buttonVariants({ size: "lg" })}>
+            Start a Project
+          </Link>
+        </div>
+      </section>
+    </>
+  );
+}
+
+function HowStep({ n, title, body }: { n: number; title: string; body: string }) {
+  return (
+    <div>
+      <div className="text-4xl font-semibold text-primary mb-2">{n}</div>
+      <div className="font-semibold mb-2">{title}</div>
+      <div className="text-sm text-muted-foreground leading-relaxed">{body}</div>
     </div>
   );
 }
