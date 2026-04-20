@@ -1,3 +1,4 @@
+import Image from "next/image";
 import Link from "next/link";
 import { buttonVariants } from "@/components/ui/button";
 
@@ -5,24 +6,29 @@ export function SiteHeader() {
   return (
     <header className="sticky top-0 z-50 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
       <div className="container mx-auto flex h-16 items-center justify-between px-4">
-        <Link href="/" className="flex items-baseline gap-2">
-          <span className="font-semibold text-base md:text-lg">
+        <Link href="/" className="flex items-center gap-3">
+          <Image
+            src="/logos/aplus-logo.svg"
+            alt="A+ Lighting"
+            width={110}
+            height={28}
+            priority
+            className="h-7 w-auto"
+          />
+          <span className="hidden md:inline text-sm text-aplus-grey border-l border-border pl-3">
             Lighting Controls Planner
-          </span>
-          <span className="hidden sm:inline text-xs text-muted-foreground">
-            from A+ Lighting
           </span>
         </Link>
         <nav className="flex items-center gap-4 md:gap-6">
           <Link
             href="/resources"
-            className="hidden sm:inline text-sm text-foreground/80 hover:text-foreground transition-colors"
+            className="hidden sm:inline text-sm text-jet/80 hover:text-jet transition-colors"
           >
             Resources
           </Link>
           <Link
             href="/about"
-            className="hidden sm:inline text-sm text-foreground/80 hover:text-foreground transition-colors"
+            className="hidden sm:inline text-sm text-jet/80 hover:text-jet transition-colors"
           >
             About
           </Link>

@@ -4,6 +4,27 @@
 
 @custom-variant dark (&:is(.dark *));
 
+@theme {
+  /* A+ Lighting Solutions brand colors (see docs/BRANDING.md) */
+  --color-infrared: #DE4444;
+  --color-infrared-light: #E86B6B;
+  --color-infrared-dark: #B83636;
+  --color-jet: #312E2E;
+  --color-jet-light: #4A4646;
+  --color-sea-salt: #FAFAFA;
+  --color-spark: #F7B32B;
+  --color-spark-light: #F9C55A;
+  --color-onyx: #454545;
+  --color-aplus-grey: #626262;
+  --color-aplus-light-grey: #DBDBDB;
+}
+
+body {
+  font-family: "Area", var(--font-sans), system-ui, -apple-system, "Segoe UI", sans-serif;
+  background-color: var(--color-sea-salt);
+  color: var(--color-jet);
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -49,24 +70,29 @@
 }
 
 :root {
+  /* shadcn defaults, adjusted to brand:
+     - --primary maps to Jet Black (#312E2E) instead of neutral near-black
+     - --foreground maps to Jet Black for brand-consistent body text
+     - --destructive maps to Infrared (#DE4444)
+     - --background stays pure white; body uses --color-sea-salt via body rule above */
   --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
+  --foreground: #312E2E;
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
+  --card-foreground: #312E2E;
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
+  --popover-foreground: #312E2E;
+  --primary: #312E2E;
+  --primary-foreground: #FAFAFA;
   --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
+  --secondary-foreground: #312E2E;
   --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
+  --muted-foreground: #626262;
   --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
+  --accent-foreground: #312E2E;
+  --destructive: #DE4444;
+  --border: #DBDBDB;
+  --input: #DBDBDB;
+  --ring: #626262;
   --chart-1: oklch(0.87 0 0);
   --chart-2: oklch(0.556 0 0);
   --chart-3: oklch(0.439 0 0);
@@ -74,13 +100,13 @@
   --chart-5: oklch(0.269 0 0);
   --radius: 0.625rem;
   --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-foreground: #312E2E;
+  --sidebar-primary: #312E2E;
+  --sidebar-primary-foreground: #FAFAFA;
   --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  --sidebar-accent-foreground: #312E2E;
+  --sidebar-border: #DBDBDB;
+  --sidebar-ring: #626262;
 }
 
 .dark {
@@ -98,7 +124,7 @@
   --muted-foreground: oklch(0.708 0 0);
   --accent: oklch(0.269 0 0);
   --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
+  --destructive: #E86B6B;
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
   --ring: oklch(0.556 0 0);
@@ -122,7 +148,7 @@
     @apply border-border outline-ring/50;
   }
   body {
-    @apply bg-background text-foreground;
+    @apply text-foreground;
   }
   html {
     @apply font-sans;

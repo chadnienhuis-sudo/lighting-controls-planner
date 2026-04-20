@@ -16,9 +16,9 @@ export default function LandingPage() {
           <div className="text-xs uppercase tracking-widest text-muted-foreground mb-4">
             A free tool from A+ Lighting
           </div>
-          <h1 className="text-4xl md:text-6xl font-semibold tracking-tight max-w-3xl mx-auto">
+          <h1 className="text-4xl md:text-6xl font-semibold tracking-tight max-w-3xl mx-auto text-jet">
             Build ASHRAE-compliant lighting controls,{" "}
-            <span className="text-primary">room by room</span>.
+            <span className="text-infrared">room by room</span>.
           </h1>
           <p className="mt-6 text-lg text-muted-foreground max-w-2xl mx-auto">
             Enter your spaces, group them by function, and export a complete
@@ -129,7 +129,7 @@ export default function LandingPage() {
 function HowStep({ n, title, body }: { n: number; title: string; body: string }) {
   return (
     <div>
-      <div className="text-4xl font-semibold text-primary mb-2">{n}</div>
+      <div className="text-4xl font-semibold text-infrared mb-2 font-mono">{n}</div>
       <div className="font-semibold mb-2">{title}</div>
       <div className="text-sm text-muted-foreground leading-relaxed">{body}</div>
     </div>
