@@ -107,3 +107,45 @@ export function regenerateFunctionalGroups(
 export function roomsForGroup(project: Project, group: FunctionalGroup): Room[] {
   return project.rooms.filter((r) => r.spaceTypeId === group.spaceTypeId);
 }
+
+/**
+ * Effective settings for a room — per-room overrides win over group defaults.
+ * Use this whenever you render a room's behavior (schedule table, SOO, narrative).
+ */
+export interface ResolvedRoomSettings {
+  daylightZone: boolean;
+  add1Selection: ControlColumnId | null;
+  add2Selections: ControlColumnId[];
+  add2Stacked: boolean;
+  /** All waivers that apply to the room — group-level + room-level combined. */
+  waivers: Array<{ requirementId: string; reason: string; authority?: string; dateIso?: string; scope: "group" | "room" }>;
+  /** True if any override field is set (used for the "customized" badge). */
+  hasOverrides: boolean;
+}
+
+export function resolveRoomSettings(room: Room, group: FunctionalGroup): ResolvedRoomSettings {
+  const o = room.overrides;
+  const groupWaivers = group.waivers.map((w) => ({ ...w, scope: "group" as const }));
+  const roomWaivers = (o?.waivers ?? []).map((w) => ({ ...w, scope: "room" as const }));
+  return {
+    daylightZone: o?.daylightZone ?? group.daylightZone,
+    add1Selection: o?.add1Selection !== undefined ? o.add1Selection : group.add1Selection,
+    add2Selections: o?.add2Selections ?? group.add2Selections,
+    add2Stacked: o?.add2Stacked ?? group.add2Stacked,
+    waivers: [...groupWaivers, ...roomWaivers],
+    hasOverrides: hasRoomOverrides(room),
+  };
+}
+
+export function hasRoomOverrides(room: Room): boolean {
+  const o = room.overrides;
+  if (!o) return false;
+  return (
+    o.daylightZone !== undefined ||
+    o.add1Selection !== undefined ||
+    o.add2Selections !== undefined ||
+    o.add2Stacked !== undefined ||
+    (o.waivers?.length ?? 0) > 0 ||
+    (o.roomNote?.trim().length ?? 0) > 0
+  );
+}

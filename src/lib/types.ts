@@ -138,6 +138,23 @@ export interface Room {
   spaceTypeId: string;
   functionalGroupId?: string;
   notes?: string;
+  /**
+   * Per-room overrides of the functional group's settings. Any field set here
+   * wins over the group's corresponding field when resolving the room's
+   * effective behavior. Use `resolveRoomSettings(room, group)` to read.
+   */
+  overrides?: RoomOverrides;
+}
+
+export interface RoomOverrides {
+  daylightZone?: boolean;
+  add1Selection?: ControlColumnId | null;
+  add2Selections?: ControlColumnId[];
+  add2Stacked?: boolean;
+  /** Room-specific waivers (merged with group waivers when resolving). */
+  waivers?: Waiver[];
+  /** Free-text note that appears as a per-room annotation in the schedule. */
+  roomNote?: string;
 }
 
 export interface OutdoorScope {

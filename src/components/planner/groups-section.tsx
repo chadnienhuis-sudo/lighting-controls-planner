@@ -4,7 +4,7 @@ import { useEffect, useMemo } from "react";
 import Link from "next/link";
 import { RefreshCw, Plus } from "lucide-react";
 import { useProjectStore } from "@/lib/project-store";
-import { roomsForGroup } from "@/lib/functional-groups";
+import { roomsForGroup, hasRoomOverrides } from "@/lib/functional-groups";
 import { spaceTypeById, applicableRequirements } from "@/data/space-types";
 import { requirementById } from "@/data/requirements";
 import type {
@@ -168,7 +168,12 @@ function GroupCard({
             <div className="font-semibold">{group.description}</div>
             <div className="mt-0.5 text-xs text-muted-foreground">
               {rooms.length} room{rooms.length === 1 ? "" : "s"}
-              {hasOverrides && <span className="ml-2 text-spark">· customized</span>}
+              {rooms.some(hasRoomOverrides) && (
+                <span className="ml-2 text-spark">
+                  · {rooms.filter(hasRoomOverrides).length} with per-room overrides
+                </span>
+              )}
+              {hasOverrides && <span className="ml-2 text-spark">· group customized</span>}
             </div>
           </div>
         </div>

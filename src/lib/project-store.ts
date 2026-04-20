@@ -7,6 +7,7 @@ import { regenerateFunctionalGroups } from "@/lib/functional-groups";
 import type {
   Project,
   Room,
+  RoomOverrides,
   OutdoorZoneType,
   OutdoorZoneConfig,
   FunctionalGroup,
@@ -24,6 +25,8 @@ interface ProjectState {
   updateProject: (patch: Partial<Project>) => void;
   addRoom: (room: Omit<Room, "id">) => void;
   updateRoom: (id: string, patch: Partial<Room>) => void;
+  updateRoomOverrides: (id: string, patch: Partial<RoomOverrides>) => void;
+  clearRoomOverrides: (id: string) => void;
   removeRoom: (id: string) => void;
   setOutdoorZone: (type: OutdoorZoneType, config: OutdoorZoneConfig | null) => void;
   setFunctionalGroups: (groups: FunctionalGroup[]) => void;
@@ -63,6 +66,32 @@ export const useProjectStore = create<ProjectState>()(
             project: touch({
               ...s.project,
               rooms: s.project.rooms.map((r) => (r.id === id ? { ...r, ...patch } : r)),
+            }),
+          };
+        }),
+
+      updateRoomOverrides: (id, patch) =>
+        set((s) => {
+          if (!s.project) return s;
+          return {
+            project: touch({
+              ...s.project,
+              rooms: s.project.rooms.map((r) =>
+                r.id === id ? { ...r, overrides: { ...(r.overrides ?? {}), ...patch } } : r,
+              ),
+            }),
+          };
+        }),
+
+      clearRoomOverrides: (id) =>
+        set((s) => {
+          if (!s.project) return s;
+          return {
+            project: touch({
+              ...s.project,
+              rooms: s.project.rooms.map((r) =>
+                r.id === id ? { ...r, overrides: undefined } : r,
+              ),
             }),
           };
         }),
