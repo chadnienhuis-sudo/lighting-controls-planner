@@ -20,20 +20,20 @@
 }
 
 body {
-  font-family: "area-normal", var(--font-sans), system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-family: "area-normal", "Geist", system-ui, -apple-system, "Segoe UI Variable", "Segoe UI", sans-serif;
   background-color: var(--color-sea-salt);
   color: var(--color-jet);
 }
 
 h1, h2, h3, h4, h5, h6 {
-  font-family: "area-extended", "area-normal", var(--font-sans), system-ui, sans-serif;
+  font-family: "area-extended", "area-normal", "Geist", system-ui, sans-serif;
   letter-spacing: -0.01em;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-sans);
+  --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
   --font-heading: var(--font-sans);
   --color-sidebar-ring: var(--sidebar-ring);
