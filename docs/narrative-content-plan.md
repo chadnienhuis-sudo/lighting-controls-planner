@@ -1,6 +1,6 @@
 # Narrative Content Plan — What Belongs in the Output
 
-**Status:** Planning draft — 2026-04-21. Research synthesis for deciding what content the tool should generate, across two output formats. Companion to `mvp-spec.md`.
+**Status:** Planning draft — 2026-04-21. Research synthesis for deciding what content the tool should generate, across two output formats. Companion to `mvp-spec.md`. §8 decisions resolved 2026-04-21.
 
 ---
 
@@ -175,14 +175,19 @@ Reuses: `group.label`, `groupNarrative()`, requirement "how met" text — all ex
 
 **Phase 5 — Project-dependent topics.** ADR, tunable white, scene/color control, integration points. Likely opt-in sections in the template editor rather than default.
 
-## 8. Open decisions
+## 8. Resolved decisions (2026-04-21)
 
-1. **Schedule title block:** emit our own, or ship naked for the EE?
-2. **Sheet size default:** Tabloid (11×17) or Arch-D (24×36)? Tabloid is easier to preview and print; Arch-D matches typical construction drawing sets.
-3. **Alpha-num keying:** mirror E-601's A…Z, AA, BB overflow, or cap at 26 groups and warn?
-4. **Setpoint defaults per space type:** do we seed from a lookup table, or leave blank and prompt?
-5. **Does the drawing schedule replace or complement the submittal room schedule?** (I'd say complement — different audiences.)
-6. **Unoccupied-level default:** blank (full-off) vs a mild partial-off like 20%? Code-driven per space type; worth a lookup.
+1. **No drawing title block — brand travels with the content.** Output is a composable content block with a branded header strip (project name · A+ URL · code version · date · revision) and a footer strip (disclaimer · A+ contact). No full drawing title block — the block is pasted onto the EE's (or A+'s own) drawing titleblock. The brand travels with the pasted content for lead generation.
+
+2. **Sheet size priority:** Arch-D (24×36) default · Letter backup · Tabloid last. Preview/print convenience only — the block scales when placed on another drawing.
+
+3. **Key generation:** auto-generate A, B, C, …, Z, then AA, BB, CC, …. Matches E-601 overflow feel. No hard cap. User-editable labels deferred.
+
+4. **Setpoint defaults:** full lookup per space type. Seeded values render in the existing muted "inherited/suggested" style (same pattern as room→group inheritance); user-confirmed overrides get the normal treatment. Default table lives next to the space-type data in [src/data/space-types.ts](src/data/space-types.ts).
+
+5. **Drawing schedule placement:** complement the submittal's existing §5 room-schedule section *and* embed it as an optional section inside the submittal PDF. Standalone Arch-D-landscape output is the primary deliverable; shared matrix renderer feeds both.
+
+6. **Unoccupied-level defaults:** blank (full-off) for most space types. Seeded bilevel minimums where ASHRAE requires them: stairwells 50% · 24/7 corridors (hospital/hotel/dorm) 30–50% · parking garages 30% · otherwise blank.
 
 ## 9. References
 
