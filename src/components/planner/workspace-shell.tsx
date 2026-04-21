@@ -168,7 +168,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
           </div>
         </div>
       </aside>
-      <div className="flex-1 min-w-0">{children}</div>
+      <div className="flex-1 min-w-0 min-h-0 flex flex-col">{children}</div>
     </div>
   );
 }

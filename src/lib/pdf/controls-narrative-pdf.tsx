@@ -29,6 +29,17 @@ import {
   type LpdCheck,
 } from "@/lib/functional-groups";
 import { BRAND } from "@/lib/brand";
+import type { RequirementsLayout } from "./requirements-layout";
+import {
+  DOCUMENT_PRESETS,
+  SECTION_KIND_LABELS,
+  visibleSections,
+  type DocumentTemplate,
+  type DocumentSection,
+  type CoverSection,
+  type RoomScheduleSection,
+  type CustomProseSection,
+} from "./document-template";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Styles
@@ -292,6 +303,26 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     marginTop: 1,
   },
+  // Watermark — diagonal semi-transparent text centered on every page. Rotation
+  // uses react-pdf's CSS transform; color uses rgba to fade behind the content.
+  watermark: {
+    position: "absolute",
+    top: "40%",
+    left: 0,
+    right: 0,
+    textAlign: "center",
+    fontSize: 100,
+    fontFamily: "Helvetica-Bold",
+    color: "rgba(49, 46, 46, 0.08)",
+    letterSpacing: 8,
+    transform: "rotate(-28deg)",
+  },
+  // Custom-prose paragraph spacing.
+  proseParagraph: {
+    fontSize: 10,
+    lineHeight: 1.5,
+    marginBottom: 8,
+  },
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -329,71 +360,214 @@ function formatLocalFilenameStamp(d = new Date()): string {
 // The document
 // ─────────────────────────────────────────────────────────────────────────────
 
+/**
+ * The overall document. Driven by a DocumentTemplate — sections iterate in
+ * the order the user arranged them in the PDF editor, each emitting a Page
+ * (or group of wrap-enabled pages) with the shared watermark + footer.
+ *
+ * Back-compat: if callers still pass `requirementsLayout` (legacy), we wrap
+ * it into the default preset. Once all callers migrate to template, that
+ * prop goes away.
+ */
 export function ControlsNarrativePdf({
   project,
-  requirementsLayout = "expanded",
+  template,
+  requirementsLayout,
 }: {
   project: Project;
+  template?: DocumentTemplate;
+  /** @deprecated Pass a full `template` instead. Left in to avoid breaking older callers mid-migration. */
   requirementsLayout?: RequirementsLayout;
 }) {
-  const hasOutdoor = Object.values(project.outdoorScope.zones).some((z) => z?.enabled);
+  const effective = template ?? templateFromLegacyLayout(requirementsLayout);
   const date = formatDateIso();
+  const hasOutdoor = Object.values(project.outdoorScope.zones).some((z) => z?.enabled);
+
+  // Precompute the content-section numbering (cover excluded). We need the
+  // heading number up front because every content-section renderer uses it
+  // for its h2 — reordering the sections renumbers everything automatically.
+  const visible = visibleSections(effective);
+  let contentIndex = 0;
+  const numbering = new Map<string, number>();
+  for (const s of visible) {
+    if (s.kind === "cover") continue;
+    // Outdoor silently drops when no zones are enabled, so it doesn't consume
+    // a content number — but it still appears in the sections list.
+    if (s.kind === "outdoor" && !hasOutdoor) continue;
+    contentIndex += 1;
+    numbering.set(s.id, contentIndex);
+  }
+
+  // Keep font size hover consistent — we let the user pick 9/10/11 and apply
+  // it as the Page's base; the h2 / h3 scales stay in their StyleSheet sizes
+  // because they already read as headings regardless of body font.
+  const pageBase: Style = { ...styles.page, fontSize: effective.fontSize };
+  const coverBase: Style = { ...styles.cover };
+
   return (
     <Document
       title={`${project.name} — Controls Narrative`}
       author="A+ Lighting Solutions, LLC"
       subject={`ASHRAE 90.1-2019 Lighting Controls Narrative for ${project.name}`}
     >
-      {/* Cover */}
-      <Page size="LETTER" style={styles.cover}>
-        <Cover project={project} date={date} />
-        <PageFooter />
-      </Page>
+      {visible.map((section) => {
+        if (section.kind === "cover") {
+          return (
+            <Page size="LETTER" style={coverBase} key={section.id}>
+              <Watermark kind={effective.watermark} />
+              <Cover
+                project={project}
+                date={date}
+                section={section as CoverSection}
+                showLogo={effective.showLogo}
+              />
+              <PageFooter showBrand={effective.showBrandFooter} />
+            </Page>
+          );
+        }
+        if (section.kind === "outdoor" && !hasOutdoor) return null;
 
-      {/* §1-§3 */}
-      <Page size="LETTER" style={styles.page}>
-        <BasisOfDesignSection project={project} />
-        <ArchitectureSection project={project} />
-        <CommissioningSection project={project} />
-        <PageFooter />
-      </Page>
+        const n = numbering.get(section.id);
+        const baseHeading = section.kind === "customProse"
+          ? (section as CustomProseSection).heading || "Notes"
+          : SECTION_KIND_LABELS[section.kind];
+        const heading = n != null ? `${n}. ${baseHeading}` : baseHeading;
 
-      {/* §4 Group sequences */}
-      <Page size="LETTER" style={styles.page} wrap>
-        <Text style={styles.h2}>4. Functional Group Sequences</Text>
-        {project.functionalGroups.length === 0 ? (
-          <Text style={[styles.prose, styles.muted]}>
-            No functional groups yet. Add rooms, then visit the Groups page to generate them.
-          </Text>
-        ) : (
-          project.functionalGroups.map((g) => (
-            <GroupSequence key={g.id} project={project} groupId={g.id} />
-          ))
-        )}
-        <PageFooter />
-      </Page>
-
-      {/* §5 Room Schedule — portrait, group-hoisted list */}
-      <Page size="LETTER" style={styles.page} wrap>
-        <Text style={styles.h2}>5. Room Schedule / Sequence of Operation</Text>
-        <RoomScheduleList project={project} requirementsLayout={requirementsLayout} />
-        <PageFooter />
-      </Page>
-
-      {/* §6 Outdoor */}
-      {hasOutdoor && (
-        <Page size="LETTER" style={styles.page} wrap>
-          <OutdoorSection project={project} />
-          <PageFooter />
-        </Page>
-      )}
-
-      {/* §7 Glossary + Disclaimer */}
-      <Page size="LETTER" style={styles.page}>
-        <GlossarySection />
-        <PageFooter />
-      </Page>
+        return (
+          <Page size="LETTER" style={pageBase} wrap key={section.id}>
+            <Watermark kind={effective.watermark} />
+            <SectionBody section={section} project={project} heading={heading} />
+            <PageFooter showBrand={effective.showBrandFooter} />
+          </Page>
+        );
+      })}
     </Document>
+  );
+}
+
+/** Legacy escape hatch — wrap a bare `requirementsLayout` into the default preset. */
+function templateFromLegacyLayout(
+  layout: RequirementsLayout | undefined,
+): DocumentTemplate {
+  const base = DOCUMENT_PRESETS[0];
+  if (!layout) return base;
+  return {
+    ...base,
+    sections: base.sections.map((s) =>
+      s.kind === "roomSchedule" ? { ...s, requirementsLayout: layout } : s,
+    ),
+  };
+}
+
+/**
+ * Dispatches a content section to its renderer. The wrapper Page emits the
+ * heading (1. / 2. / etc.) just outside, so each body renderer only emits its
+ * own content and doesn't need to know its number.
+ */
+function SectionBody({
+  section,
+  project,
+  heading,
+}: {
+  section: DocumentSection;
+  project: Project;
+  heading: string;
+}) {
+  switch (section.kind) {
+    case "basisOfDesign":
+      return <BasisOfDesignSection project={project} heading={heading} />;
+    case "systemArchitecture":
+      return <ArchitectureSection project={project} heading={heading} />;
+    case "commissioning":
+      return <CommissioningSection project={project} heading={heading} />;
+    case "groupSequences":
+      return <GroupSequencesSectionBody project={project} heading={heading} />;
+    case "roomSchedule": {
+      const rs = section as RoomScheduleSection;
+      return (
+        <View>
+          <Text style={styles.h2}>{heading}</Text>
+          <RoomScheduleList
+            project={project}
+            requirementsLayout={rs.requirementsLayout}
+            showLpdMath={rs.showLpdMath}
+          />
+        </View>
+      );
+    }
+    case "outdoor":
+      return <OutdoorSection project={project} heading={heading} />;
+    case "glossary":
+      return <GlossarySection heading={heading} />;
+    case "customProse":
+      return <CustomProseSectionBody section={section as CustomProseSection} heading={heading} />;
+    default:
+      return null;
+  }
+}
+
+/** Diagonal watermark painted behind every page. `kind: "none"` renders nothing. */
+function Watermark({ kind }: { kind: DocumentTemplate["watermark"] }) {
+  if (kind === "none") return null;
+  const text = kind.toUpperCase();
+  return (
+    <Text style={styles.watermark} fixed>
+      {text}
+    </Text>
+  );
+}
+
+/** Content wrapper for §4 — splits the header emission out so the body can wrap. */
+function GroupSequencesSectionBody({
+  project,
+  heading,
+}: {
+  project: Project;
+  heading: string;
+}) {
+  return (
+    <View>
+      <Text style={styles.h2}>{heading}</Text>
+      {project.functionalGroups.length === 0 ? (
+        <Text style={[styles.prose, styles.muted]}>
+          No functional groups yet. Add rooms, then visit the Groups page to generate them.
+        </Text>
+      ) : (
+        project.functionalGroups.map((g) => (
+          <GroupSequence key={g.id} project={project} groupId={g.id} />
+        ))
+      )}
+    </View>
+  );
+}
+
+/** User-authored prose section. Body paragraphs separate on blank lines. */
+function CustomProseSectionBody({
+  section,
+  heading,
+}: {
+  section: CustomProseSection;
+  heading: string;
+}) {
+  const paragraphs = section.body
+    .split(/\n\s*\n/)
+    .map((p) => p.trim())
+    .filter((p) => p.length > 0);
+  return (
+    <View style={styles.section}>
+      <Text style={styles.h2}>{heading}</Text>
+      {paragraphs.length === 0 ? (
+        <Text style={[styles.prose, styles.muted]}>
+          (Empty section — add body text in the editor to fill this in.)
+        </Text>
+      ) : (
+        paragraphs.map((p, i) => (
+          <Text key={i} style={styles.proseParagraph}>
+            {p}
+          </Text>
+        ))
+      )}
+    </View>
   );
 }
 
@@ -401,7 +575,17 @@ export function ControlsNarrativePdf({
 // Sections
 // ─────────────────────────────────────────────────────────────────────────────
 
-function Cover({ project, date }: { project: Project; date: string }) {
+function Cover({
+  project,
+  date,
+  section,
+  showLogo,
+}: {
+  project: Project;
+  date: string;
+  section: CoverSection;
+  showLogo: boolean;
+}) {
   const totalSqft = project.rooms.reduce((s, r) => s + (r.sizeSqft || 0), 0);
   // Logo has to be an absolute URL for react-pdf's Image fetcher. We're always
   // browser-side at the download call site, so window.location.origin is safe.
@@ -409,9 +593,10 @@ function Cover({ project, date }: { project: Project; date: string }) {
     typeof window !== "undefined"
       ? `${window.location.origin}/logos/aplus-logo.png`
       : "/logos/aplus-logo.png";
+  const title = section.titleOverride?.trim() || "Lighting controls narrative";
   return (
     <View>
-      <Image src={logoSrc} style={styles.coverLogo} />
+      {showLogo ? <Image src={logoSrc} style={styles.coverLogo} /> : null}
       <Text style={styles.eyebrow}>Prepared by</Text>
       <Text style={styles.coverName}>
         {project.preparedBy?.trim() || BRAND.legalName}
@@ -422,48 +607,52 @@ function Cover({ project, date }: { project: Project; date: string }) {
         </Text>
       ) : null}
 
-      <Text style={styles.coverProjectLabel}>Lighting controls narrative</Text>
+      <Text style={styles.coverProjectLabel}>{title}</Text>
       <Text style={styles.coverProjectName}>{project.name}</Text>
 
-      <View style={styles.coverFacts}>
-        {project.location ? (
-          <Fact label="Location" value={project.location} />
-        ) : null}
-        <Fact label="Code version" value={project.codeVersion} />
-        <Fact label="Document date" value={date} />
-        <Fact
-          label="Rooms covered"
-          value={`${project.rooms.length} room${project.rooms.length === 1 ? "" : "s"} · ${totalSqft.toLocaleString()} ft²`}
-        />
-        <Fact label="Functional groups" value={`${project.functionalGroups.length}`} />
-      </View>
+      {section.showFacts ? (
+        <View style={styles.coverFacts}>
+          {project.location ? (
+            <Fact label="Location" value={project.location} />
+          ) : null}
+          <Fact label="Code version" value={project.codeVersion} />
+          <Fact label="Document date" value={date} />
+          <Fact
+            label="Rooms covered"
+            value={`${project.rooms.length} room${project.rooms.length === 1 ? "" : "s"} · ${totalSqft.toLocaleString()} ft²`}
+          />
+          <Fact label="Functional groups" value={`${project.functionalGroups.length}`} />
+        </View>
+      ) : null}
 
-      <View style={styles.disclaimerBox}>
-        <Text style={styles.disclaimerHeading}>Disclaimer</Text>
-        <Text>
-          The Lighting Controls Planner is a design aid provided by A+ Lighting Solutions, LLC to
-          help users develop conceptual lighting controls designs. It is{" "}
-          <Text style={styles.bold}>NOT</Text> a compliance certification, engineering
-          stamp, or substitute for review by a licensed engineer or Authority Having
-          Jurisdiction (AHJ).
-        </Text>
-        <Text style={{ marginTop: 6 }}>
-          Outputs are based on ASHRAE 90.1-2019 requirements as interpreted by A+
-          Lighting LLC. Local codes, amendments, and AHJ rulings may impose additional
-          or different requirements. Users are solely responsible for verifying all
-          outputs against applicable codes and for obtaining required approvals,
-          permits, and engineer sign-offs prior to installation.
-        </Text>
-        <Text style={{ marginTop: 6 }}>
-          A+ Lighting Solutions, LLC makes no warranty of accuracy, completeness, or fitness for
-          any particular purpose. In no event shall A+ Lighting Solutions, LLC be liable for
-          damages arising from use of this tool.
-        </Text>
-        <Text style={{ marginTop: 6 }}>
-          Final construction documents, manufacturer approvals, and installation must
-          be performed by qualified parties.
-        </Text>
-      </View>
+      {section.showDisclaimer ? (
+        <View style={styles.disclaimerBox}>
+          <Text style={styles.disclaimerHeading}>Disclaimer</Text>
+          <Text>
+            The Lighting Controls Planner is a design aid provided by A+ Lighting Solutions, LLC to
+            help users develop conceptual lighting controls designs. It is{" "}
+            <Text style={styles.bold}>NOT</Text> a compliance certification, engineering
+            stamp, or substitute for review by a licensed engineer or Authority Having
+            Jurisdiction (AHJ).
+          </Text>
+          <Text style={{ marginTop: 6 }}>
+            Outputs are based on ASHRAE 90.1-2019 requirements as interpreted by A+
+            Lighting LLC. Local codes, amendments, and AHJ rulings may impose additional
+            or different requirements. Users are solely responsible for verifying all
+            outputs against applicable codes and for obtaining required approvals,
+            permits, and engineer sign-offs prior to installation.
+          </Text>
+          <Text style={{ marginTop: 6 }}>
+            A+ Lighting Solutions, LLC makes no warranty of accuracy, completeness, or fitness for
+            any particular purpose. In no event shall A+ Lighting Solutions, LLC be liable for
+            damages arising from use of this tool.
+          </Text>
+          <Text style={{ marginTop: 6 }}>
+            Final construction documents, manufacturer approvals, and installation must
+            be performed by qualified parties.
+          </Text>
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -477,12 +666,12 @@ function Fact({ label, value }: { label: string; value: string }) {
   );
 }
 
-function BasisOfDesignSection({ project }: { project: Project }) {
+function BasisOfDesignSection({ project, heading }: { project: Project; heading: string }) {
   const bod = project.basisOfDesign;
   const override = project.sectionOverrides.basisOfDesign?.trim();
   return (
     <View style={styles.section}>
-      <Text style={styles.h2}>1. Basis of Design</Text>
+      <Text style={styles.h2}>{heading}</Text>
       {override ? (
         <Text style={styles.prose}>{override}</Text>
       ) : (
@@ -511,7 +700,7 @@ function BasisOfDesignSection({ project }: { project: Project }) {
   );
 }
 
-function ArchitectureSection({ project }: { project: Project }) {
+function ArchitectureSection({ project, heading }: { project: Project; heading: string }) {
   const sa = project.systemArchitecture;
   const override = project.sectionOverrides.systemArchitecture?.trim();
   const prettyType: Record<string, string> = {
@@ -523,7 +712,7 @@ function ArchitectureSection({ project }: { project: Project }) {
   };
   return (
     <View style={styles.section}>
-      <Text style={styles.h2}>2. System Architecture</Text>
+      <Text style={styles.h2}>{heading}</Text>
       {override ? (
         <Text style={styles.prose}>{override}</Text>
       ) : (
@@ -546,12 +735,12 @@ function ArchitectureSection({ project }: { project: Project }) {
   );
 }
 
-function CommissioningSection({ project }: { project: Project }) {
+function CommissioningSection({ project, heading }: { project: Project; heading: string }) {
   const cm = project.commissioning;
   const override = project.sectionOverrides.commissioning?.trim();
   return (
     <View style={styles.section}>
-      <Text style={styles.h2}>3. Commissioning & Handoff</Text>
+      <Text style={styles.h2}>{heading}</Text>
       {override ? (
         <Text style={styles.prose}>{override}</Text>
       ) : (
@@ -711,9 +900,12 @@ function GroupSequence({ project, groupId }: { project: Project; groupId: string
 function RoomScheduleList({
   project,
   requirementsLayout = "expanded",
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- wired through from the template; will drive a project-level LPD math block in a followup PDF pass (the on-screen LpdTotalsMath block doesn't exist in PDF yet).
+  showLpdMath: _showLpdMath = true,
 }: {
   project: Project;
   requirementsLayout?: RequirementsLayout;
+  showLpdMath?: boolean;
 }) {
   if (project.rooms.length === 0) {
     return <Text style={[styles.prose, styles.muted]}>No rooms yet.</Text>;
@@ -1422,7 +1614,7 @@ function InstalledLpdPdf({ check }: { check: LpdCheck }) {
   );
 }
 
-function OutdoorSection({ project }: { project: Project }) {
+function OutdoorSection({ project, heading }: { project: Project; heading: string }) {
   const enabledZones = (
     Object.entries(project.outdoorScope.zones) as Array<
       [OutdoorZoneType, NonNullable<typeof project.outdoorScope.zones[OutdoorZoneType]>]
@@ -1430,7 +1622,7 @@ function OutdoorSection({ project }: { project: Project }) {
   ).filter(([, cfg]) => cfg.enabled);
   return (
     <View style={styles.section}>
-      <Text style={styles.h2}>6. Outdoor Controls (§9.4.2)</Text>
+      <Text style={styles.h2}>{`${heading} (§9.4.2)`}</Text>
       {enabledZones.length === 0 ? (
         <Text style={[styles.prose, styles.muted]}>No outdoor zones in scope.</Text>
       ) : (
@@ -1466,10 +1658,10 @@ const GLOSSARY: Array<{ term: string; def: string }> = [
   { term: "§8.4.2", def: "Automatic receptacle control — applies to private offices, conference, print/copy, break, classrooms, and workstations." },
 ];
 
-function GlossarySection() {
+function GlossarySection({ heading }: { heading: string }) {
   return (
     <View style={styles.section}>
-      <Text style={styles.h2}>7. Glossary & Abbreviations</Text>
+      <Text style={styles.h2}>{heading}</Text>
       {GLOSSARY.map(({ term, def }) => (
         <View key={term} style={{ flexDirection: "row", marginBottom: 3 }}>
           <Text style={[styles.bold, { width: 92 }]}>{term}</Text>
@@ -1480,17 +1672,19 @@ function GlossarySection() {
   );
 }
 
-function PageFooter() {
+function PageFooter({ showBrand = true }: { showBrand?: boolean }) {
   return (
     <View style={styles.footer} fixed>
-      <View style={styles.footerRow}>
-        <Text>
-          <Text style={styles.bold}>{BRAND.legalName}</Text> · {BRAND.address.line1}, {BRAND.address.cityStateZip}
-        </Text>
-        <Text>
-          {BRAND.phone} · {BRAND.email}
-        </Text>
-      </View>
+      {showBrand ? (
+        <View style={styles.footerRow}>
+          <Text>
+            <Text style={styles.bold}>{BRAND.legalName}</Text> · {BRAND.address.line1}, {BRAND.address.cityStateZip}
+          </Text>
+          <Text>
+            {BRAND.phone} · {BRAND.email}
+          </Text>
+        </View>
+      ) : null}
       <View style={styles.footerRow}>
         <Text>Generated using Lighting Controls Planner.</Text>
         <Text>Design aid — verify with your AHJ and licensed engineer.</Text>
@@ -1503,25 +1697,41 @@ function PageFooter() {
 // Download trigger
 // ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * Section 5 layout — mirrors the on-screen tabs in DocumentSection so a
- * downloaded PDF reflects whichever variant is currently being previewed.
- * Defaults to "expanded" for back-compat with any caller not passing options.
- */
-export type RequirementsLayout = "expanded" | "compact" | "soo" | "pills" | "hybrid";
+// Re-export the shared RequirementsLayout type so existing imports from this
+// module keep working. The canonical home is requirements-layout.ts now.
+export type { RequirementsLayout } from "./requirements-layout";
 
+/**
+ * Options for rendering the PDF. Prefer `template` — it drives every knob the
+ * editor exposes. `requirementsLayout` is the legacy escape hatch used by
+ * callers still on the old API (they get the default preset with only the
+ * Section-5 layout switched).
+ */
 export interface DownloadOptions {
+  template?: DocumentTemplate;
+  /** @deprecated Pass a full `template` instead. */
   requirementsLayout?: RequirementsLayout;
+}
+
+/** Shared — builds the Blob so both download + preview use one pipeline. */
+export async function generateControlsNarrativeBlob(
+  project: Project,
+  options: DownloadOptions = {},
+): Promise<Blob> {
+  return pdf(
+    <ControlsNarrativePdf
+      project={project}
+      template={options.template}
+      requirementsLayout={options.requirementsLayout}
+    />,
+  ).toBlob();
 }
 
 export async function downloadControlsNarrativePdf(
   project: Project,
   options: DownloadOptions = {},
 ) {
-  const layout = options.requirementsLayout ?? "expanded";
-  const blob = await pdf(
-    <ControlsNarrativePdf project={project} requirementsLayout={layout} />,
-  ).toBlob();
+  const blob = await generateControlsNarrativeBlob(project, options);
   const safeName =
     project.name
       .trim()
@@ -1529,10 +1739,11 @@ export async function downloadControlsNarrativePdf(
       .replace(/^-|-$/g, "")
       .toLowerCase() || "project";
   const stamp = formatLocalFilenameStamp();
-  // Tag filename with layout when not the default, so multiple downloads
-  // for comparison are easy to tell apart on disk.
-  const layoutSuffix = layout === "expanded" ? "" : `-${layout}`;
-  const filename = `${safeName}-controls-narrative-${stamp}${layoutSuffix}.pdf`;
+  // Template name gets kebab-cased into the filename so multiple preset
+  // exports for A/B comparison are easy to tell apart on disk. Legacy callers
+  // that pass `requirementsLayout` fall back to the layout suffix behavior.
+  const suffix = buildFilenameSuffix(options);
+  const filename = `${safeName}-controls-narrative-${stamp}${suffix}.pdf`;
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
@@ -1541,4 +1752,20 @@ export async function downloadControlsNarrativePdf(
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
+}
+
+function buildFilenameSuffix(options: DownloadOptions): string {
+  if (options.template) {
+    const id = options.template.id;
+    // Default preset → no suffix; others get a tag so A/B downloads are distinguishable.
+    if (id === DOCUMENT_PRESETS[0].id) return "";
+    const tag = options.template.name
+      .trim()
+      .replace(/[^a-z0-9]+/gi, "-")
+      .replace(/^-|-$/g, "")
+      .toLowerCase();
+    return tag ? `-${tag}` : "";
+  }
+  const layout = options.requirementsLayout ?? "expanded";
+  return layout === "expanded" ? "" : `-${layout}`;
 }
