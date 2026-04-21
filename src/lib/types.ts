@@ -113,6 +113,8 @@ export interface Project {
   id: string;
   name: string;
   location?: string;
+  /** Name of the person who prepared this narrative — shown on the cover. */
+  preparedBy?: string;
   codeVersion: CodeVersion;
   createdAt: string; // ISO
   updatedAt: string; // ISO
@@ -144,6 +146,36 @@ export interface Room {
    * effective behavior. Use `resolveRoomSettings(room, group)` to read.
    */
   overrides?: RoomOverrides;
+  /**
+   * Connected lighting — one entry per fixture type in the room. Used to
+   * compute installed LPD (W/ft²) and compare against the space type's
+   * allowance from Table 9.6.1. A room may have multiple types (e.g. 20×
+   * linear strip @ 40 W plus 5× recessed can @ 15 W). Read via
+   * `resolveRoomFixtures(room)` which also handles the legacy single-type
+   * fields below.
+   */
+  fixtures?: RoomFixture[];
+  /** @deprecated Legacy single-type fixture count — use `fixtures[]`. Read via
+   *  `resolveRoomFixtures`, which synthesizes a single-entry array when only
+   *  the legacy fields are present. Kept optional for back-compat with
+   *  projects in localStorage from earlier sessions. */
+  fixtureCount?: number;
+  /** @deprecated Legacy single-type wattage per fixture. See `fixtureCount`. */
+  fixtureWattage?: number;
+}
+
+/**
+ * One fixture type in a room. `model` is a free-text tag the designer types
+ * in (catalog number, fixture schedule ID, etc.) — no catalog lookup in MVP.
+ */
+export interface RoomFixture {
+  id: string;
+  /** Free-text identifier — catalog #, fixture tag, description. May be blank. */
+  model: string;
+  /** Watts per fixture. */
+  wattage: number;
+  /** How many of this fixture type are installed in the room. */
+  count: number;
 }
 
 export interface RoomOverrides {
@@ -186,7 +218,18 @@ export interface FunctionalGroup {
   label: string; // short tag — "A", "B", "C" or "PO-DL"
   description: string; // human-readable — "Private Office w/ Daylight Harvesting"
   spaceTypeId: string;
-  // splitting factors
+  // Physical daylight exposure. These drive whether §9.4.1.1(e) sidelighting
+  // and §9.4.1.1(f) toplighting requirements actually activate. When both
+  // are false/undefined the space type's REQ status still reads as REQ by code,
+  // but the narrative treats those requirements as not-applicable.
+  hasWindows?: boolean;
+  hasSkylights?: boolean;
+  /**
+   * @deprecated Legacy single-flag splitting factor — `true` meant "group has
+   * some daylight exposure" without distinguishing sidelit vs toplit. Kept for
+   * back-compat with projects already in localStorage. Derived as
+   * `hasWindows || hasSkylights` on write; readers should prefer the pair.
+   */
   daylightZone: boolean;
   // ADD1 set encodes occupancy strategy (§9.4.1.1(b) restricted-to-manual-on
   // vs (c) restricted-to-partial-auto-on). ADD2 set encodes shutoff behavior

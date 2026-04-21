@@ -67,7 +67,7 @@ Part of the **A+ Lighting Advantage** product package. The tool:
 
 ### 4.5 Output: Controls Narrative Deliverable
 Exported document sections:
-1. Cover page (project info, date, "Prepared by A+ Lighting LLC")
+1. Cover page (project info, date, "Prepared by A+ Lighting Solutions, LLC")
 2. Basis of Design
 3. System Architecture notes
 4. **Functional Group Sequences** (narratives + requirements + IES targets + [premium] devices)
@@ -163,7 +163,7 @@ Inline help callouts within the tool flow (especially outdoor scope steps) link 
 - **Tool name**: Lighting Controls Planner (descriptive-generic — helps the tool rank for generic industry searches like "lighting controls planner" or "ASHRAE 90.1 tool")
 - **Visual identity**: strongly A+ Lighting. A+ logo in header, A+ colors/typography, clear "from A+ Lighting" attribution. It's a public good — but it was built by A+, and every visitor should know it. Same pattern Stripe/Vercel use for their free/open tools: generic name, unmistakable company fingerprint.
 - **Tagline concept (draft)**: e.g., *"Lighting Controls Planner — a free tool from A+ Lighting"* in the hero / header
-- **Exports**: A+-branded throughout — "Prepared by A+ Lighting LLC" on cover and footer; "Generated using Lighting Controls Planner" credit line
+- **Exports**: A+-branded throughout — "Prepared by A+ Lighting Solutions, LLC" on cover and footer; "Generated using Lighting Controls Planner" credit line
 - **Visual design**: derive from apluslightingllc.com once we know the site stack and brand guide. Starting point: A+ logo + colors on shadcn/ui's polished defaults, customized with the A+ palette. Need logo assets + primary/secondary colors from Chad.
 
 ## 8. Phase 2+ Roadmap
@@ -217,11 +217,11 @@ Positioning: **design aid, not compliance certification.** No PE review pipeline
 ### 11.1 Disclaimer — long form
 Appears on the cover page and footer of every export, and on the tool's About/Legal page:
 
-> **Disclaimer.** The Lighting Controls Planner is a design aid provided by A+ Lighting LLC to help users develop conceptual lighting controls designs. It is **NOT** a compliance certification, engineering stamp, or substitute for review by a licensed engineer or Authority Having Jurisdiction (AHJ).
+> **Disclaimer.** The Lighting Controls Planner is a design aid provided by A+ Lighting Solutions, LLC to help users develop conceptual lighting controls designs. It is **NOT** a compliance certification, engineering stamp, or substitute for review by a licensed engineer or Authority Having Jurisdiction (AHJ).
 >
-> Outputs are based on ASHRAE 90.1-2019 requirements as interpreted by A+ Lighting LLC. Local codes, amendments, and AHJ rulings may impose additional or different requirements. Users are solely responsible for verifying all outputs against applicable codes and for obtaining required approvals, permits, and engineer sign-offs prior to installation.
+> Outputs are based on ASHRAE 90.1-2019 requirements as interpreted by A+ Lighting Solutions, LLC. Local codes, amendments, and AHJ rulings may impose additional or different requirements. Users are solely responsible for verifying all outputs against applicable codes and for obtaining required approvals, permits, and engineer sign-offs prior to installation.
 >
-> A+ Lighting LLC makes no warranty of accuracy, completeness, or fitness for any particular purpose. In no event shall A+ Lighting LLC be liable for damages arising from use of this tool.
+> A+ Lighting Solutions, LLC makes no warranty of accuracy, completeness, or fitness for any particular purpose. In no event shall A+ Lighting Solutions, LLC be liable for damages arising from use of this tool.
 >
 > Final construction documents, manufacturer approvals, and installation must be performed by qualified parties.
 

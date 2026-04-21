@@ -5,6 +5,7 @@ import type {
   FunctionalGroup,
   Project,
   Room,
+  RoomFixture,
   SpaceType,
 } from "@/lib/types";
 
@@ -55,6 +56,8 @@ export function autoGenerateGroups(rooms: Room[]): FunctionalGroup[] {
       label: LABEL_ALPHABET[i] ?? `G${i + 1}`,
       description: st?.name ?? spaceTypeId,
       spaceTypeId,
+      hasWindows: false,
+      hasSkylights: false,
       daylightZone: false,
       add1Selection: add1,
       add2Selections: add2 ? [add2] : [],
@@ -137,6 +140,30 @@ export function resolveRoomSettings(room: Room, group: FunctionalGroup): Resolve
   };
 }
 
+/**
+ * Resolve per-group daylight flags. Prefers the new `hasWindows` /
+ * `hasSkylights` fields; falls back to the legacy `daylightZone` boolean,
+ * treating its `true` state as "both windows and skylights possibly apply"
+ * (match the old behavior where daylightZone = true would activate any §e/§f
+ * REQ from Table 9.6.1).
+ */
+export function resolveDaylight(group: {
+  hasWindows?: boolean;
+  hasSkylights?: boolean;
+  daylightZone: boolean;
+}): { hasWindows: boolean; hasSkylights: boolean } {
+  if (group.hasWindows !== undefined || group.hasSkylights !== undefined) {
+    return {
+      hasWindows: !!group.hasWindows,
+      hasSkylights: !!group.hasSkylights,
+    };
+  }
+  return {
+    hasWindows: !!group.daylightZone,
+    hasSkylights: !!group.daylightZone,
+  };
+}
+
 export function hasRoomOverrides(room: Room): boolean {
   const o = room.overrides;
   if (!o) return false;
@@ -148,4 +175,152 @@ export function hasRoomOverrides(room: Room): boolean {
     (o.waivers?.length ?? 0) > 0 ||
     (o.roomNote?.trim().length ?? 0) > 0
   );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Fixture resolution + LPD compliance helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Resolve the room's fixture list. Prefers the new `fixtures[]` array; falls
+ * back to the legacy `fixtureCount` / `fixtureWattage` single-type pair for
+ * projects saved before the multi-fixture refactor.
+ */
+export function resolveRoomFixtures(room: Room): RoomFixture[] {
+  if (room.fixtures && room.fixtures.length > 0) return room.fixtures;
+  if (room.fixtureCount && room.fixtureWattage) {
+    return [
+      {
+        id: `legacy_${room.id}`,
+        model: "",
+        wattage: room.fixtureWattage,
+        count: room.fixtureCount,
+      },
+    ];
+  }
+  return [];
+}
+
+/** Sum connected W across a room's fixtures. */
+export function totalRoomWatts(room: Room): number {
+  let w = 0;
+  for (const f of resolveRoomFixtures(room)) {
+    if (f.count > 0 && f.wattage > 0) w += f.count * f.wattage;
+  }
+  return w;
+}
+
+/** Sum fixture counts across all types in a room. */
+export function totalRoomFixtureCount(room: Room): number {
+  let n = 0;
+  for (const f of resolveRoomFixtures(room)) {
+    if (f.count > 0) n += f.count;
+  }
+  return n;
+}
+
+/** True when the room has at least one fixture entry with both count and wattage set. */
+export function roomHasFixtures(room: Room): boolean {
+  return totalRoomWatts(room) > 0;
+}
+
+/**
+ * Plain-text per-room fixture breakdown for the Room Schedule.
+ *   "20× LS-A8-4K @ 40 W; 5× RC-6 @ 15 W"
+ * When a model tag is blank, falls back to `"20× @ 40 W"`. Returns "" when
+ * the room has no usable fixtures (count or wattage missing).
+ */
+export function formatFixtureBreakdown(room: Room): string {
+  const fixtures = resolveRoomFixtures(room);
+  if (fixtures.length === 0) return "";
+  const parts: string[] = [];
+  for (const f of fixtures) {
+    if (f.count <= 0 || f.wattage <= 0) continue;
+    const model = f.model.trim();
+    parts.push(
+      model
+        ? `${f.count}× ${model} @ ${f.wattage} W`
+        : `${f.count}× @ ${f.wattage} W`,
+    );
+  }
+  return parts.join("; ");
+}
+
+export interface LpdCheck {
+  /** Total installed wattage, summed across all fixture types in the room. */
+  installedWatts: number;
+  /** Installed W/ft² for this room. null when area or fixtures are missing. */
+  installedLpd: number | null;
+  /** The Table 9.6.1 allowance for this room's space type. */
+  allowance: number;
+  /** "pass" | "fail" | "unknown" (missing inputs). */
+  status: "pass" | "fail" | "unknown";
+}
+
+/** Per-room LPD compliance. Sums W across all fixture types. */
+export function lpdCheckForRoom(room: Room, allowance: number): LpdCheck {
+  const watts = totalRoomWatts(room);
+  const lpd = room.sizeSqft > 0 && watts > 0 ? watts / room.sizeSqft : null;
+  const hasInputs = watts > 0 && room.sizeSqft > 0;
+  return {
+    installedWatts: watts,
+    installedLpd: lpd,
+    allowance,
+    status: !hasInputs ? "unknown" : lpd! <= allowance ? "pass" : "fail",
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Switch / control-zone sizing (§9.4.1.1(a))
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface SwitchZoneInfo {
+  /** Max ft² a single switch may control for this project. */
+  zoneMaxSqft: number;
+  /** Minimum number of zones required for this room (≥1). */
+  minZonesRequired: number;
+}
+
+/**
+ * Switch-zone sizing per §9.4.1.1(a):
+ *   - Floors ≥10,000 ft² total → max 10,000 ft² per switch
+ *   - Floors <10,000 ft² total → max 2,500 ft² per switch
+ * A single room larger than the zone max needs multiple switches.
+ */
+export function switchZoneInfoForRoom(
+  sizeSqft: number,
+  projectTotalSqft: number,
+): SwitchZoneInfo {
+  const zoneMax = projectTotalSqft >= 10000 ? 10000 : 2500;
+  return {
+    zoneMaxSqft: zoneMax,
+    minZonesRequired: sizeSqft > 0 ? Math.max(1, Math.ceil(sizeSqft / zoneMax)) : 0,
+  };
+}
+
+/**
+ * Group-level LPD rollup. Uses the space-building method: sum installed W,
+ * divide by sum of room area, compare to the allowance. Only rooms with
+ * fixture data contribute to the totals; rooms without data are left out and
+ * the status is "unknown" until at least one room has inputs.
+ */
+export function lpdCheckForGroup(rooms: Room[], allowance: number): LpdCheck {
+  let totalW = 0;
+  let totalSf = 0;
+  let anyFixtures = false;
+  for (const r of rooms) {
+    const w = totalRoomWatts(r);
+    if (w > 0) {
+      anyFixtures = true;
+      totalW += w;
+      totalSf += r.sizeSqft;
+    }
+  }
+  const lpd = totalSf > 0 && totalW > 0 ? totalW / totalSf : null;
+  return {
+    installedWatts: totalW,
+    installedLpd: lpd,
+    allowance,
+    status: !anyFixtures || lpd === null ? "unknown" : lpd <= allowance ? "pass" : "fail",
+  };
 }

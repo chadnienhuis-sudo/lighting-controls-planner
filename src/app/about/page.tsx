@@ -23,7 +23,7 @@ export default function AboutPage() {
         system should operate.
       </p>
       <p>
-        A+ Lighting LLC, a Michigan-based lighting distributor that does
+        A+ Lighting Solutions, LLC, a Michigan-based lighting distributor that does
         in-house photometric and controls design, built this tool to fill that
         gap. It encodes ASHRAE 90.1-2019 Section 9 requirements (interior and
         outdoor) and IES illumination recommendations into a guided flow that
@@ -50,7 +50,7 @@ export default function AboutPage() {
 
       <h2>Who maintains it</h2>
       <p>
-        A+ Lighting LLC maintains the tool&rsquo;s code data, templates, and
+        A+ Lighting Solutions, LLC maintains the tool&rsquo;s code data, templates, and
         resource content. Updates happen as ASHRAE, IES, and product lines
         evolve.
       </p>

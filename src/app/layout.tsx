@@ -31,7 +31,7 @@ export const metadata: Metadata = {
     "daylight harvesting",
     "A+ Lighting",
   ],
-  authors: [{ name: "A+ Lighting LLC", url: "https://apluslightingllc.com" }],
+  authors: [{ name: "A+ Lighting Solutions, LLC", url: "https://apluslightingllc.com" }],
   openGraph: {
     title: "Lighting Controls Planner",
     description:

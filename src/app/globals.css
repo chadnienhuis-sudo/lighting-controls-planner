@@ -166,3 +166,71 @@ input, select, textarea, [data-slot="select-value"] {
     @apply font-sans;
   }
 }
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Print — used by the Document & Export pages. The preview DOM is printed
+   as-is. Hide app chrome, strip the preview wrapper, force page breaks at
+   major section boundaries.
+   ─────────────────────────────────────────────────────────────────────── */
+@media print {
+  @page {
+    size: Letter;
+    margin: 0.6in 0.55in;
+  }
+  html, body {
+    background: white !important;
+  }
+  /* Hide site + workspace chrome */
+  aside,
+  header.site-header,
+  footer.site-footer,
+  [data-print-hide] {
+    display: none !important;
+  }
+  /* Strip the preview card wrapper and page padding so the doc fills the page */
+  .doc-root {
+    border: none !important;
+    box-shadow: none !important;
+    border-radius: 0 !important;
+    max-width: none !important;
+  }
+  main,
+  .doc-root {
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+  /* Page breaks */
+  .doc-page-break {
+    display: block !important;
+    height: 0 !important;
+    border: none !important;
+    background: transparent !important;
+    break-after: page;
+    page-break-after: always;
+  }
+  .doc-cover {
+    break-after: page;
+    page-break-after: always;
+  }
+  .doc-section,
+  .doc-group {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  .doc-schedule {
+    break-inside: auto;
+    page-break-inside: auto;
+  }
+  .doc-schedule tr {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  .doc-schedule thead {
+    display: table-header-group;
+  }
+  /* Links render as plain text in print */
+  a {
+    color: inherit !important;
+    text-decoration: none !important;
+  }
+}

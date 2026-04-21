@@ -15,7 +15,7 @@ export function SiteFooter() {
                 target="_blank"
                 rel="noopener noreferrer"
               >
-                A+ Lighting LLC
+                A+ Lighting Solutions, LLC
               </a>
               .
             </p>
@@ -54,7 +54,7 @@ export function SiteFooter() {
           </div>
         </div>
         <div className="mt-8 pt-4 border-t border-border text-xs text-muted-foreground flex flex-col sm:flex-row justify-between gap-2">
-          <span>© {new Date().getFullYear()} A+ Lighting LLC. All rights reserved.</span>
+          <span>© {new Date().getFullYear()} A+ Lighting Solutions, LLC. All rights reserved.</span>
           <span>Made in Michigan.</span>
         </div>
       </div>

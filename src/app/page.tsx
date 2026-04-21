@@ -14,7 +14,7 @@ export default function LandingPage() {
       <section className="border-b border-border">
         <div className="container mx-auto px-4 py-20 md:py-28 text-center">
           <div className="text-xs uppercase tracking-widest text-muted-foreground mb-4">
-            A free tool from A+ Lighting
+            A free tool from A+ Lighting Solutions
           </div>
           <h1 className="text-4xl md:text-6xl font-semibold tracking-tight max-w-3xl mx-auto text-jet">
             Build ASHRAE-compliant lighting controls,{" "}
