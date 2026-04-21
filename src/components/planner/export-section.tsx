@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { Printer, FileText, CheckCircle2, AlertTriangle, Download } from "lucide-react";
+import { FileText, CheckCircle2, AlertTriangle, Download } from "lucide-react";
 import { useProjectStore } from "@/lib/project-store";
 import { spaceTypeById } from "@/data/space-types";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -65,8 +65,9 @@ export function ExportSection() {
       <header className="mb-6">
         <h1 className="text-2xl md:text-3xl font-semibold tracking-tight">Export</h1>
         <p className="mt-1.5 text-sm text-muted-foreground max-w-2xl">
-          Save the full controls narrative as a PDF via your browser&rsquo;s print dialog. Free tier
-          includes A+ Lighting attribution on the cover and every page footer.
+          Download the full controls narrative as a clean PDF — no browser
+          headers. Free tier includes A+ Lighting attribution on the cover and
+          every page footer.
         </p>
       </header>
 
@@ -156,25 +157,6 @@ export function ExportSection() {
             >
               <Download className="size-4" />
               {downloading ? "Generating PDF…" : "Download PDF"}
-            </Button>
-          </div>
-          <div className="flex items-start justify-between gap-6 border-t border-border pt-4">
-            <div className="max-w-md">
-              <div className="text-sm font-medium text-jet">Or — print via browser</div>
-              <div className="mt-1 text-xs text-muted-foreground">
-                Opens your browser&rsquo;s print dialog. In Chrome / Edge, choose{" "}
-                <span className="font-medium">&ldquo;Save as PDF&rdquo;</span>. US
-                Letter, 0.55in / 0.6in margins.
-              </div>
-            </div>
-            <Button
-              variant="outline"
-              size="lg"
-              onClick={() => window.print()}
-              disabled={hasBlocking}
-            >
-              <Printer className="size-4" />
-              Open print dialog
             </Button>
           </div>
         </div>

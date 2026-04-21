@@ -36,6 +36,7 @@ import type {
   FunctionalGroup,
   Room,
   RoomFixture,
+  RoomOverrides,
   SensorType,
   DimmingProtocol,
   SpaceType,
@@ -315,12 +316,59 @@ function GroupCard({
               </HelpPopover>
             </div>
             <div className="mt-2 space-y-2.5">
-              <Toggle
-                label="Exposed to daylight"
-                hint="Rooms in this group have windows or skylights that bring in daylight (see ?)."
-                checked={group.daylightZone}
-                onChange={(v) => onChange({ daylightZone: v })}
-              />
+              {(() => {
+                const dl = resolveDaylight(group);
+                return (
+                  <>
+                    <Toggle
+                      label="Windows?"
+                      hint="Rooms in this group have windows that create a sidelit daylight zone."
+                      checked={dl.hasWindows}
+                      onChange={(v) =>
+                        onChange({
+                          hasWindows: v,
+                          hasSkylights: dl.hasSkylights,
+                          daylightZone: v || dl.hasSkylights,
+                          sidelightPowerOver150W: v ? group.sidelightPowerOver150W : false,
+                        })
+                      }
+                    />
+                    {dl.hasWindows && (
+                      <div className="ml-6">
+                        <Toggle
+                          label="Sidelit zone exceeds 150 W?"
+                          hint="§9.4.1.1(e) triggers only when the sidelit zone (depth = window head height) contains more than 150 W of connected lighting."
+                          checked={!!group.sidelightPowerOver150W}
+                          onChange={(v) => onChange({ sidelightPowerOver150W: v })}
+                        />
+                      </div>
+                    )}
+                    <Toggle
+                      label="Skylights?"
+                      hint="Rooms in this group have skylights that create a toplit daylight zone."
+                      checked={dl.hasSkylights}
+                      onChange={(v) =>
+                        onChange({
+                          hasWindows: dl.hasWindows,
+                          hasSkylights: v,
+                          daylightZone: dl.hasWindows || v,
+                          toplightPowerOver150W: v ? group.toplightPowerOver150W : false,
+                        })
+                      }
+                    />
+                    {dl.hasSkylights && (
+                      <div className="ml-6">
+                        <Toggle
+                          label="Toplit zone exceeds 150 W?"
+                          hint="§9.4.1.1(f) triggers only when the toplit zone (0.7 × ceiling height around each skylight) contains more than 150 W of connected lighting."
+                          checked={!!group.toplightPowerOver150W}
+                          onChange={(v) => onChange({ toplightPowerOver150W: v })}
+                        />
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
             </div>
           </div>
 
@@ -895,6 +943,8 @@ function MatrixView({
       hasWindows: nextWindows,
       hasSkylights: current.hasSkylights,
       daylightZone: nextWindows || current.hasSkylights,
+      // Clear the power-threshold answer when turning windows off — meaningless without windows.
+      sidelightPowerOver150W: nextWindows ? g.sidelightPowerOver150W : false,
     });
   };
   const toggleSkylights = (g: FunctionalGroup) => {
@@ -904,6 +954,17 @@ function MatrixView({
       hasWindows: current.hasWindows,
       hasSkylights: nextSkylights,
       daylightZone: current.hasWindows || nextSkylights,
+      toplightPowerOver150W: nextSkylights ? g.toplightPowerOver150W : false,
+    });
+  };
+  const toggleSidelightPower = (g: FunctionalGroup) => {
+    updateFunctionalGroup(g.id, {
+      sidelightPowerOver150W: !g.sidelightPowerOver150W,
+    });
+  };
+  const toggleToplightPower = (g: FunctionalGroup) => {
+    updateFunctionalGroup(g.id, {
+      toplightPowerOver150W: !g.toplightPowerOver150W,
     });
   };
 
@@ -928,22 +989,20 @@ function MatrixView({
               />
               <SimpleColHeader label="Turn-on strategy" sub="§b / §c · pick one" width="w-48" />
               <SimpleColHeader label="Bi-level" sub="§d" width="w-20" />
-              <SimpleColHeader label="Daylight side" sub="§e" width="w-24" />
-              <SimpleColHeader label="Daylight top" sub="§f" width="w-24" />
+              <SimpleColHeader
+                label="Daylight side"
+                sub="§e · Windows?"
+                width="w-28"
+                help={<DaylightZoneHelp />}
+              />
+              <SimpleColHeader
+                label="Daylight top"
+                sub="§f · Skylights?"
+                width="w-28"
+                help={<DaylightZoneHelp />}
+              />
               <SimpleColHeader label="Turn-off strategy" sub="§g / §h / §i · pick one" width="w-64" />
               <SimpleColHeader label="Plug load" sub="§8.4.2" width="w-20" />
-              <SimpleColHeader
-                label="Windows?"
-                sub="triggers §e"
-                width="w-20"
-                help={<DaylightZoneHelp />}
-              />
-              <SimpleColHeader
-                label="Skylights?"
-                sub="triggers §f"
-                width="w-20"
-                help={<DaylightZoneHelp />}
-              />
               <th className="px-2 py-2 w-14" />
             </tr>
           </thead>
@@ -1037,25 +1096,27 @@ function MatrixView({
                     getFootnote={(key, text) => fn(g.id, key, text)}
                     onToggle={() => toggleReqWaiver(g, "bilevel")}
                   />
-                  {/* Daylight sidelight (§e) — active only if the group has windows */}
-                  <ReqStatusCell
+                  {/* Sidelighting — Windows? Y/N + optional ≥150W follow-up */}
+                  <DaylightMergedCell
+                    kind="side"
                     spaceType={st}
-                    col="daylight_sidelighting"
+                    group={g}
                     waiver={waivers.get("daylight_sidelighting")}
                     getFootnote={(key, text) => fn(g.id, key, text)}
-                    onToggle={() => toggleReqWaiver(g, "daylight_sidelighting")}
-                    notApplicable={!resolveDaylight(g).hasWindows}
-                    notApplicableReason="No windows — §e not applicable"
+                    onToggleFlag={() => toggleWindows(g)}
+                    onTogglePower={() => toggleSidelightPower(g)}
+                    onToggleWaiver={() => toggleReqWaiver(g, "daylight_sidelighting")}
                   />
-                  {/* Daylight toplight (§f) — active only if the group has skylights */}
-                  <ReqStatusCell
+                  {/* Toplighting — Skylights? Y/N + optional ≥150W follow-up */}
+                  <DaylightMergedCell
+                    kind="top"
                     spaceType={st}
-                    col="daylight_toplighting"
+                    group={g}
                     waiver={waivers.get("daylight_toplighting")}
                     getFootnote={(key, text) => fn(g.id, key, text)}
-                    onToggle={() => toggleReqWaiver(g, "daylight_toplighting")}
-                    notApplicable={!resolveDaylight(g).hasSkylights}
-                    notApplicableReason="No skylights — §f not applicable"
+                    onToggleFlag={() => toggleSkylights(g)}
+                    onTogglePower={() => toggleToplightPower(g)}
+                    onToggleWaiver={() => toggleReqWaiver(g, "daylight_toplighting")}
                   />
                   {/* Turn-off strategy (§g/h/i — REQ + ADD2) */}
                   <StrategyCell
@@ -1079,22 +1140,6 @@ function MatrixView({
                       waiver={plugLoadWaiver}
                       getFootnote={(key, text) => fn(g.id, key, text)}
                       onToggle={() => toggleReqWaiver(g, "plug_load_842")}
-                    />
-                  </td>
-                  <td className="px-3 py-2.5 text-center">
-                    <DaylightFlagCell
-                      flag={resolveDaylight(g).hasWindows}
-                      applies={st?.controls.daylight_sidelighting === "REQ"}
-                      label="Windows"
-                      onToggle={() => toggleWindows(g)}
-                    />
-                  </td>
-                  <td className="px-3 py-2.5 text-center">
-                    <DaylightFlagCell
-                      flag={resolveDaylight(g).hasSkylights}
-                      applies={st?.controls.daylight_toplighting === "REQ"}
-                      label="Skylights"
-                      onToggle={() => toggleSkylights(g)}
                     />
                   </td>
                   <td className="px-2 py-1.5 text-right">
@@ -1513,47 +1558,163 @@ function PlugLoadCell({
 }
 
 /**
- * One-click Y/N toggle for a daylight-exposure flag (Windows? or Skylights?).
- * When the underlying control column doesn't apply to the space type ("—")
- * the cell is rendered as muted N/A and the flag is effectively unused.
+ * Merged sidelight (§e) / toplight (§f) cell. Two stacked chips:
+ *   • Windows? (or Skylights?) — explicit Y/N, always shown, click toggles.
+ *   • ≥150 W? — only shown when the flag is Y and Table 9.6.1 marks the
+ *     column REQ. Click toggles; answering Yes is what actually triggers the
+ *     §e/§f controls requirement per ASHRAE §9.4.1.1(e)/(f).
+ * Waiver state renders as a "Waived" chip + footnote, clickable to restore.
  */
-function DaylightFlagCell({
-  flag,
-  applies,
-  label,
-  onToggle,
+function DaylightMergedCell({
+  kind,
+  spaceType,
+  group,
+  waiver,
+  getFootnote,
+  onToggleFlag,
+  onTogglePower,
+  onToggleWaiver,
 }: {
-  flag: boolean;
-  applies: boolean;
-  label: string;
-  onToggle: () => void;
+  kind: "side" | "top";
+  spaceType: SpaceType | undefined;
+  group: FunctionalGroup;
+  waiver: { reason: string; authority?: string; dateIso?: string } | undefined;
+  getFootnote: (key: string, text: string) => number;
+  onToggleFlag: () => void;
+  onTogglePower: () => void;
+  onToggleWaiver?: () => void;
 }) {
-  if (!applies) {
+  const col: ControlColumnId =
+    kind === "side" ? "daylight_sidelighting" : "daylight_toplighting";
+  const flagLabel = kind === "side" ? "Windows" : "Skylights";
+  const sectionRef = kind === "side" ? "§e" : "§f";
+  const applicability = spaceType?.controls[col] ?? null;
+  const isReq = applicability === "REQ";
+  const daylight = resolveDaylight(group);
+  const flag = kind === "side" ? daylight.hasWindows : daylight.hasSkylights;
+  const powerOver150 = !!(
+    kind === "side" ? group.sidelightPowerOver150W : group.toplightPowerOver150W
+  );
+  const reqLabel = requirementById(col)?.shortName ?? col;
+
+  // Waived — whole cell is the restore affordance
+  if (waiver) {
+    const n = getFootnote(col, formatWaiverText(reqLabel, waiver));
+    const title = `${reqLabel} — waived (click to restore)`;
     return (
-      <span
-        className="text-muted-foreground/50"
-        title={`${label}: not applicable to this space type`}
-      >
-        —
-      </span>
+      <td className="px-3 py-2.5 text-center" title={title}>
+        {onToggleWaiver ? (
+          <button
+            type="button"
+            onClick={onToggleWaiver}
+            aria-label={title}
+            className="rounded focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none cursor-pointer"
+          >
+            <Chip variant="waived">Waived</Chip>
+          </button>
+        ) : (
+          <Chip variant="waived">Waived</Chip>
+        )}
+        <FootnoteMark n={n} />
+      </td>
     );
   }
-  const title = `${label}: ${flag ? "Yes" : "No"} (click to toggle)`;
-  const chip = flag ? (
-    <Chip variant="selected" title={title}>Y</Chip>
-  ) : (
-    <Chip variant="optional" interactive title={title}>N</Chip>
+
+  const flagTitle = `${flagLabel}: ${flag ? "Yes" : "No"} — click to toggle`;
+  const flagChip = (
+    <Chip variant={flag ? "selected" : "optional"} interactive>
+      {flag ? "Y" : "N"}
+    </Chip>
   );
+
+  // Secondary chip visible only when Windows/Skylights=Y and space type has §e/§f REQ.
+  // (If §e/§f doesn't apply to this space type at all, the 150W question is moot.)
+  const showPowerChip = flag && isReq;
+  const powerTitle = powerOver150
+    ? `Zone has >150 W of connected lighting — ${sectionRef} daylight controls required (click to change)`
+    : `Zone has ≤150 W of connected lighting — ${sectionRef} not triggered (click to change)`;
+
   return (
-    <button
-      type="button"
-      onClick={onToggle}
-      aria-label={title}
-      aria-pressed={flag}
-      className="rounded focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none cursor-pointer"
-    >
-      {chip}
-    </button>
+    <td className="px-2 py-2" title={flagTitle}>
+      <div className="flex flex-wrap items-center justify-center gap-1">
+        <button
+          type="button"
+          onClick={onToggleFlag}
+          aria-pressed={flag}
+          aria-label={flagTitle}
+          className="rounded focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none cursor-pointer"
+        >
+          {flagChip}
+        </button>
+        {showPowerChip && (
+          <button
+            type="button"
+            onClick={onTogglePower}
+            aria-pressed={powerOver150}
+            aria-label={powerTitle}
+            title={powerTitle}
+            className="rounded focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none cursor-pointer"
+          >
+            {powerOver150 ? (
+              <Chip variant="selected">&ge;150 W &middot; REQ</Chip>
+            ) : (
+              <Chip variant="optional" interactive>
+                &lt;150 W
+              </Chip>
+            )}
+          </button>
+        )}
+      </div>
+    </td>
+  );
+}
+
+/**
+ * Sub-row read-only mirror of the merged daylight cell. Shows inherited
+ * state for the room; per-room daylight overrides aren't surfaced in the
+ * matrix.
+ */
+function InheritedDaylightCell({
+  kind,
+  spaceType,
+  group,
+}: {
+  kind: "side" | "top";
+  spaceType: SpaceType | undefined;
+  group: FunctionalGroup;
+}) {
+  const col: ControlColumnId =
+    kind === "side" ? "daylight_sidelighting" : "daylight_toplighting";
+  const applicability = spaceType?.controls[col] ?? null;
+  const isReq = applicability === "REQ";
+  const daylight = resolveDaylight(group);
+  const flag = kind === "side" ? daylight.hasWindows : daylight.hasSkylights;
+  const powerOver150 = !!(
+    kind === "side" ? group.sidelightPowerOver150W : group.toplightPowerOver150W
+  );
+  const title = "Inherited from group";
+
+  if (!flag) {
+    return (
+      <td className="px-3 py-2 text-center" title={title}>
+        <Chip variant="optional">N</Chip>
+      </td>
+    );
+  }
+  // flag = Y, plus optional power indicator
+  return (
+    <td className="px-2 py-2 text-center" title={title}>
+      <div className="flex flex-wrap items-center justify-center gap-1">
+        <Chip variant="selected">Y</Chip>
+        {isReq && (
+          powerOver150 ? (
+            <Chip variant="selected">&ge;150 W</Chip>
+          ) : (
+            <Chip variant="subsumed">&lt;150 W</Chip>
+          )
+        )}
+      </div>
+    </td>
   );
 }
 
@@ -1575,7 +1736,7 @@ function RoomMatrixRow({
   spaceType: SpaceType | undefined;
   projectTotalSqft: number;
   onUpdateRoom: (patch: Partial<Room>) => void;
-  onUpdateOverrides: (patch: Partial<Room["overrides"]>) => void;
+  onUpdateOverrides: (patch: Partial<RoomOverrides>) => void;
 }) {
   const resolved = resolveRoomSettings(room, group);
   const zones = switchZoneInfoForRoom(room.sizeSqft, projectTotalSqft);
@@ -1614,9 +1775,6 @@ function RoomMatrixRow({
       return;
     }
     onUpdateOverrides({ add2Selections: [col], add2Stacked: false });
-  };
-  const toggleDaylight = () => {
-    onUpdateOverrides({ daylightZone: !resolved.daylightZone });
   };
 
   return (
@@ -1684,10 +1842,10 @@ function RoomMatrixRow({
       />
       {/* Bi-level (§d) */}
       <InheritedReqCell col="bilevel" spaceType={spaceType} />
-      {/* Daylight side (§e) */}
-      <InheritedReqCell col="daylight_sidelighting" spaceType={spaceType} />
-      {/* Daylight top (§f) */}
-      <InheritedReqCell col="daylight_toplighting" spaceType={spaceType} />
+      {/* Daylight side — inherited from group's merged cell */}
+      <InheritedDaylightCell kind="side" spaceType={spaceType} group={group} />
+      {/* Daylight top — inherited from group's merged cell */}
+      <InheritedDaylightCell kind="top" spaceType={spaceType} group={group} />
       {/* Turn-off (§g/h/i) — editable per-room */}
       <EditableStrategyCell
         kind="add2"
@@ -1701,32 +1859,6 @@ function RoomMatrixRow({
           <Chip variant="req">
             <Check className="size-3.5" />
           </Chip>
-        ) : (
-          <span className="text-muted-foreground/50">—</span>
-        )}
-      </td>
-      {/* Daylight zone — editable per-room */}
-      <td className="px-3 py-2 text-center">
-        {spaceType?.controls.daylight_sidelighting === "REQ" ||
-        spaceType?.controls.daylight_toplighting === "REQ" ? (
-          <button
-            type="button"
-            onClick={toggleDaylight}
-            aria-pressed={resolved.daylightZone}
-            aria-label={
-              resolved.daylightZone
-                ? "Room daylight zone: Yes (click to toggle)"
-                : "Room daylight zone: No (click to toggle)"
-            }
-            className="rounded focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none cursor-pointer"
-          >
-            <Chip
-              variant={resolved.daylightZone ? "selected" : "optional"}
-              interactive={!resolved.daylightZone}
-            >
-              {resolved.daylightZone ? "Y" : "N"}
-            </Chip>
-          </button>
         ) : (
           <span className="text-muted-foreground/50">—</span>
         )}
@@ -2165,7 +2297,8 @@ function Chip({
         variant === "selected" && "bg-jet text-primary-foreground",
         variant === "optional" && "border border-border bg-background text-muted-foreground",
         variant === "waived" && "bg-spark/15 text-spark line-through decoration-[1.5px]",
-        variant === "subsumed" && "bg-muted text-muted-foreground/80 cursor-help",
+        variant === "subsumed" && !interactive && "bg-muted text-muted-foreground/80 cursor-help",
+        variant === "subsumed" && interactive && "bg-muted text-muted-foreground/80 hover:bg-muted/80 hover:text-jet cursor-pointer",
         variant === "pass" && "bg-emerald-600 text-white",
         variant === "fail" && "bg-destructive text-white",
         interactive && variant === "optional" && "hover:border-jet hover:text-jet cursor-pointer",
@@ -2194,45 +2327,76 @@ function formatWaiverText(
 
 /**
  * Plain-English explanation of the §9.4.1.1(e)/(f) daylight-zone trigger.
- * Shown behind a ? button on the Daylight zone toggle / column so users
- * don't have to read the standard to answer the question.
+ * Shown behind a ? button on the daylight column headers. Two parts:
+ * the presence question (Windows?/Skylights?) and the 150 W threshold
+ * question — both have to be Yes for the requirement to actually activate.
  */
 function DaylightZoneHelp() {
   return (
-    <div className="space-y-2">
+    <div className="space-y-2.5">
       <div>
-        <strong className="text-jet">Does this group have windows or skylights?</strong>{" "}
-        If yes, ASHRAE §9.4.1.1(e) or (f) may require daylight-responsive controls in
-        the affected zone.
-      </div>
-      <div>
-        <span className="font-semibold text-jet">How this flag interacts with §e / §f:</span>{" "}
-        the adjacent <em>Daylight side (§e)</em> and <em>Daylight top (§f)</em> columns
-        show the code's REQ status for the space type — i.e. "if a sidelit / toplit
-        zone exists, install daylight-responsive controls." This toggle tells the tool
-        whether such a zone <em>actually exists</em> in the project. Without it, the §e
-        /§f requirements don't activate in the narrative even if Table 9.6.1 marks them
-        REQ.
-      </div>
-      <div>
-        <span className="font-semibold text-jet">Primary daylight zone (rule of thumb):</span>
-        <ul className="mt-1 ml-4 list-disc space-y-0.5">
+        <strong className="text-jet">Two questions drive §9.4.1.1(e) / (f):</strong>
+        <ol className="mt-1 ml-4 list-decimal space-y-0.5">
           <li>
-            <strong>Sidelit</strong> — depth equal to the <em>head height</em> of the
-            window (the height from finished floor to the top of the glass), running
-            along the window wall.
+            <strong>Is there a window or skylight?</strong> Click <em>Y</em> only if
+            the space actually has glazing that creates a daylight zone.
           </li>
           <li>
-            <strong>Toplit</strong> — extends 0.7 × ceiling height on each side of a
-            skylight.
+            <strong>Does the zone exceed 150 W of connected lighting?</strong> If
+            Yes, daylight-responsive controls are required. If No, the code doesn&rsquo;t
+            trigger them.
+          </li>
+        </ol>
+      </div>
+      <div>
+        <span className="font-semibold text-jet">Primary daylight zone depth:</span>
+        <ul className="mt-1 ml-4 list-disc space-y-0.5">
+          <li>
+            <strong>Sidelit</strong> — depth = <em>head height</em> of the window
+            (floor to top-of-glass), running along the window wall.
+          </li>
+          <li>
+            <strong>Toplit</strong> — 0.7 &times; ceiling height out from each side
+            of the skylight opening.
           </li>
         </ul>
       </div>
-      <div>
-        <span className="font-semibold text-jet">Threshold:</span> daylight-responsive
-        controls are only required when the <em>connected lighting power</em> inside
-        that zone exceeds <strong>150 W</strong>. If the zone has no lighting or less
-        than 150 W, leave this off.
+      <svg
+        viewBox="0 0 220 110"
+        className="my-1 block h-28 w-full text-muted-foreground"
+        role="img"
+        aria-label="Sidelit primary daylight zone — depth equals window head height"
+      >
+        {/* ceiling & floor */}
+        <line x1="10" y1="10" x2="210" y2="10" stroke="currentColor" strokeWidth="1" />
+        <line x1="10" y1="100" x2="210" y2="100" stroke="currentColor" strokeWidth="1" />
+        {/* window wall */}
+        <line x1="10" y1="10" x2="10" y2="100" stroke="currentColor" strokeWidth="2" />
+        {/* window */}
+        <rect x="4" y="20" width="12" height="50" fill="none" stroke="currentColor" strokeDasharray="2 2" />
+        <text x="22" y="18" fontSize="8" fill="currentColor">Glass</text>
+        {/* head height line projected into room */}
+        <line x1="10" y1="70" x2="80" y2="70" stroke="currentColor" strokeDasharray="3 2" />
+        {/* sidelit zone (shaded) */}
+        <rect x="10" y="70" width="70" height="30" fill="currentColor" opacity="0.1" />
+        <rect x="10" y="70" width="70" height="30" fill="none" stroke="currentColor" />
+        <text x="45" y="90" fontSize="7.5" textAnchor="middle" fill="currentColor">Sidelit zone</text>
+        {/* head-height label */}
+        <line x1="10" y1="20" x2="10" y2="70" stroke="currentColor" strokeWidth="0.5" />
+        <text x="-45" y="50" fontSize="7" fill="currentColor" transform="rotate(-90 50 50)">Head height (H)</text>
+        {/* depth label */}
+        <text x="45" y="108" fontSize="7" textAnchor="middle" fill="currentColor">Depth = H</text>
+        {/* 150W indicator */}
+        <text x="200" y="85" fontSize="7" textAnchor="end" fill="currentColor">
+          &gt;150 W of lighting
+        </text>
+        <text x="200" y="94" fontSize="7" textAnchor="end" fill="currentColor">
+          inside zone &rarr; REQ
+        </text>
+      </svg>
+      <div className="text-[11px] text-muted-foreground italic">
+        Tip: if the zone has fewer than 150 W, uncheck the second chip — the narrative
+        will state the requirement isn&rsquo;t triggered.
       </div>
     </div>
   );

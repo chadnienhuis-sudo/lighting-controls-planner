@@ -225,6 +225,18 @@ export interface FunctionalGroup {
   hasWindows?: boolean;
   hasSkylights?: boolean;
   /**
+   * Does the primary sidelit daylight zone contain >150 W of connected
+   * lighting power? Per ASHRAE §9.4.1.1(e), daylight-responsive sidelighting
+   * controls are only required when the zone exceeds this threshold. Only
+   * meaningful when `hasWindows` is true. Defaults undefined; treat as false.
+   */
+  sidelightPowerOver150W?: boolean;
+  /**
+   * Does the primary toplit daylight zone contain >150 W? §9.4.1.1(f)
+   * mirrors the sidelit rule. Only meaningful when `hasSkylights` is true.
+   */
+  toplightPowerOver150W?: boolean;
+  /**
    * @deprecated Legacy single-flag splitting factor — `true` meant "group has
    * some daylight exposure" without distinguishing sidelit vs toplit. Kept for
    * back-compat with projects already in localStorage. Derived as

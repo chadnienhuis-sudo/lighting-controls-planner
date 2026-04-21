@@ -1,16 +1,20 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
-import { Printer } from "lucide-react";
+import { Download, Loader2 } from "lucide-react";
 import { useProjectStore } from "@/lib/project-store";
 import { spaceTypeById } from "@/data/space-types";
 import { requirementById } from "@/data/requirements";
 import {
   resolveRoomSettings,
   lpdCheckForRoom,
+  lpdCheckForGroup,
   totalRoomWatts,
-  formatFixtureBreakdown,
+  resolveRoomFixtures,
+  fixtureBreakdownLines,
+  splitSpaceTypeName,
+  roomsForGroup,
   type LpdCheck,
 } from "@/lib/functional-groups";
 import { BRAND } from "@/lib/brand";
@@ -19,6 +23,7 @@ import {
   outdoorZoneNarrative,
   formatOutdoorSize,
   OUTDOOR_ZONE_LABELS,
+  type GroupNarrative,
 } from "@/lib/narrative";
 import type {
   FunctionalGroup,
@@ -30,35 +35,112 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 /**
+ * Section 5 layout variant — picked from the toggle at the top of the
+ * Document preview. Each variant trades density for readability differently;
+ * this lets a designer compare on real data (and download each as a PDF) before
+ * locking one in. Whatever's selected here is also what the PDF renders.
+ */
+export type RequirementsLayout = "expanded" | "compact" | "soo" | "pills" | "hybrid";
+
+const LAYOUT_TABS: Array<{ id: RequirementsLayout; label: string; hint: string }> = [
+  { id: "expanded", label: "Expanded", hint: "Each rule on two lines (current)" },
+  { id: "compact", label: "Compact", hint: "One-line rows · N/A consolidated" },
+  { id: "soo", label: "Sequence of operation", hint: "Two columns: turn-on / turn-off" },
+  { id: "pills", label: "Pills + narrative", hint: "Chip dashboard + plain-English paragraph" },
+  { id: "hybrid", label: "Hybrid", hint: "Expanded actives · N/A consolidated" },
+];
+
+/**
  * Full deliverable preview. Renders the same DOM used for PDF export —
- * the Export page just triggers window.print() against this preview.
- * Print-specific layout rules live in globals.css under @media print.
+ * the Download button generates a clean react-pdf file so users never hit
+ * the browser print dialog's URL / timestamp headers.
  */
 export function DocumentSection() {
   const project = useProjectStore((s) => s.project);
+  const [downloading, setDownloading] = useState(false);
+  const [layout, setLayout] = useState<RequirementsLayout>("expanded");
 
   if (!project) return null;
 
+  async function handleDownload() {
+    if (!project || downloading) return;
+    setDownloading(true);
+    try {
+      const { downloadControlsNarrativePdf } = await import("@/lib/pdf/controls-narrative-pdf");
+      await downloadControlsNarrativePdf(project, { requirementsLayout: layout });
+    } finally {
+      setDownloading(false);
+    }
+  }
+
   return (
     <div className="px-6 md:px-10 py-8 max-w-5xl">
-      <header className="mb-6 flex items-end justify-between gap-4" data-print-hide>
+      <header className="mb-4 flex items-end justify-between gap-4" data-print-hide>
         <div>
           <h1 className="text-2xl md:text-3xl font-semibold tracking-tight">
             Document preview
           </h1>
           <p className="mt-1.5 text-sm text-muted-foreground max-w-2xl">
-            The full controls narrative as it will appear in the exported PDF. Use
-            the Export tab, or hit Print below, to render a PDF via your browser&rsquo;s
-            print dialog.
+            The full controls narrative as it will appear in the exported PDF.
+            Download a clean PDF below — no browser headers or URL bars.
           </p>
         </div>
-        <Button variant="outline" onClick={() => window.print()}>
-          <Printer className="size-4" />
-          Print / Save as PDF
+        <Button variant="outline" onClick={handleDownload} disabled={downloading}>
+          {downloading ? (
+            <Loader2 className="size-4 animate-spin" />
+          ) : (
+            <Download className="size-4" />
+          )}
+          {downloading ? "Generating PDF…" : "Download PDF"}
         </Button>
       </header>
 
-      <DocumentBody project={project} />
+      <LayoutTabs current={layout} onChange={setLayout} />
+
+      <DocumentBody project={project} requirementsLayout={layout} />
+    </div>
+  );
+}
+
+/**
+ * Tabbed selector for the Section 5 layout variant. The current pick drives
+ * both the on-screen preview and the PDF download — letting a designer
+ * compare each variant on real project data before settling on one.
+ */
+function LayoutTabs({
+  current,
+  onChange,
+}: {
+  current: RequirementsLayout;
+  onChange: (next: RequirementsLayout) => void;
+}) {
+  return (
+    <div className="mb-4 rounded-md border border-border bg-muted/20 p-2" data-print-hide>
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span className="text-[11px] uppercase tracking-widest font-semibold text-muted-foreground mr-2">
+          Section 5 layout
+        </span>
+        {LAYOUT_TABS.map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            onClick={() => onChange(t.id)}
+            title={t.hint}
+            aria-pressed={current === t.id}
+            className={cn(
+              "rounded-sm px-2.5 py-1 text-xs font-medium transition-colors",
+              current === t.id
+                ? "bg-jet text-primary-foreground"
+                : "bg-background text-foreground hover:bg-muted",
+            )}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+      <div className="mt-1 text-[10px] text-muted-foreground">
+        {LAYOUT_TABS.find((t) => t.id === current)?.hint} · Downloaded PDF uses this layout.
+      </div>
     </div>
   );
 }
@@ -68,7 +150,13 @@ export function DocumentSection() {
  * element. Used by the Document preview page and also embedded below the Export
  * page's readiness summary so window.print() from there prints the real doc.
  */
-export function DocumentBody({ project }: { project: Project }) {
+export function DocumentBody({
+  project,
+  requirementsLayout = "expanded",
+}: {
+  project: Project;
+  requirementsLayout?: RequirementsLayout;
+}) {
   return (
     <article className="doc-root rounded-lg border border-border bg-white shadow-sm">
       <CoverBlock project={project} />
@@ -79,7 +167,7 @@ export function DocumentBody({ project }: { project: Project }) {
       <PageBreak />
       <GroupSequencesBlock project={project} />
       <PageBreak />
-      <RoomScheduleBlock project={project} />
+      <RoomScheduleBlock project={project} requirementsLayout={requirementsLayout} />
       {Object.values(project.outdoorScope.zones).some((z) => z?.enabled) && (
         <>
           <PageBreak />
@@ -343,18 +431,29 @@ function GroupSequence({ project, group }: { project: Project; group: Functional
                     line.status === "active" && "bg-jet",
                     line.status === "waived" && "bg-spark",
                     line.status === "addition" && "bg-infrared",
+                    line.status === "na" && "border border-muted-foreground/40 bg-transparent",
                   )}
                 />
                 <div className="flex-1">
-                  <span className={line.status === "waived" ? "line-through text-muted-foreground" : ""}>
+                  <span
+                    className={cn(
+                      line.status === "waived" && "line-through text-muted-foreground",
+                      line.status === "na" && "text-muted-foreground italic",
+                    )}
+                  >
                     {line.shortName}
                   </span>
-                  <span className="ml-1.5 text-xs text-muted-foreground">§{line.section}</span>
+                  <span className="ml-1.5 text-xs text-muted-foreground">
+                    {line.section.startsWith("9.4") || /^\d/.test(line.section) ? `§${line.section}` : line.section}
+                  </span>
                   {line.footnoteNumber !== undefined && (
                     <sup className="ml-0.5 text-xs text-spark">[{line.footnoteNumber}]</sup>
                   )}
                   {line.status === "addition" && (
                     <span className="ml-1.5 text-xs text-infrared">(beyond code)</span>
+                  )}
+                  {line.status === "na" && (
+                    <span className="ml-1.5 text-xs text-muted-foreground">— N/A</span>
                   )}
                 </div>
               </li>
@@ -415,229 +514,58 @@ function GroupSequence({ project, group }: { project: Project; group: Functional
 // Room schedule / SOO table — the high-value output
 // ─────────────────────────────────────────────────────────────────────────────
 
-function RoomScheduleBlock({ project }: { project: Project }) {
-  // Pre-compute each row; collect room-level waivers into a footnote list.
-  const groupsById = new Map(project.functionalGroups.map((g) => [g.id, g]));
-
-  type Row = {
-    room: Room;
-    group?: FunctionalGroup;
-    spaceTypeName: string;
-    lpdAllowance: number;
-    installedLpd: LpdCheck;
-    groupLabel: string;
-    occupancy: string;
-    shutoff: string;
-    daylight: string;
-    plugLoad: string;
-    fixtureBreakdown: string;
-    note: string;
-    footnoteNumbers: number[];
-  };
-
+function RoomScheduleBlock({
+  project,
+  requirementsLayout = "expanded",
+}: {
+  project: Project;
+  requirementsLayout?: RequirementsLayout;
+}) {
   const footnotes: Array<{ number: number; text: string }> = [];
   let counter = 0;
 
-  const rows: Row[] = project.rooms.map((room): Row => {
-    const group = room.functionalGroupId ? groupsById.get(room.functionalGroupId) : undefined;
-    const st = spaceTypeById(room.spaceTypeId);
-    const resolved = group ? resolveRoomSettings(room, group) : null;
-    const footnoteNumbers: number[] = [];
+  function addFootnote(text: string): number {
+    counter += 1;
+    footnotes.push({ number: counter, text });
+    return counter;
+  }
 
-    const occupancy = (() => {
-      if (!resolved || !group) return "—";
-      if (resolved.waivers.some((w) => w.requirementId === "add1_set")) {
-        const w = resolved.waivers.find((x) => x.requirementId === "add1_set")!;
-        counter += 1;
-        footnotes.push({
-          number: counter,
-          text: `${roomRef(room)}: ADD1 waived — ${w.reason}${w.authority ? ` (${w.authority})` : ""}${w.dateIso ? ` [${w.dateIso.slice(0, 10)}]` : ""}`,
-        });
-        footnoteNumbers.push(counter);
-        return "AHJ override";
-      }
-      if (resolved.add1Selection) {
-        return shortLabel(resolved.add1Selection);
-      }
-      return st && hasAdd(st, "ADD1") ? "(unassigned)" : "Auto-on OK";
-    })();
-
-    const shutoff = (() => {
-      if (!resolved || !group) return "—";
-      if (resolved.waivers.some((w) => w.requirementId === "add2_set")) {
-        const w = resolved.waivers.find((x) => x.requirementId === "add2_set")!;
-        counter += 1;
-        footnotes.push({
-          number: counter,
-          text: `${roomRef(room)}: ADD2 waived — ${w.reason}${w.authority ? ` (${w.authority})` : ""}${w.dateIso ? ` [${w.dateIso.slice(0, 10)}]` : ""}`,
-        });
-        footnoteNumbers.push(counter);
-        return "AHJ override";
-      }
-      // Selected ADD2
-      if (resolved.add2Selections.length > 0) {
-        return resolved.add2Selections.map(shortLabel).join(resolved.add2Stacked ? " + " : " / ");
-      }
-      // REQ-level shutoff columns (g/h/i) — code-mandated, no pick needed
-      const reqShutoffs = st
-        ? (["auto_full_off", "scheduled_shutoff", "auto_partial_off"] as const).filter(
-            (c) => st.controls[c] === "REQ",
-          )
-        : [];
-      if (reqShutoffs.length > 0) {
-        return reqShutoffs.map(shortLabel).join(" + ");
-      }
-      return st && hasAdd(st, "ADD2") ? "(unassigned)" : "—";
-    })();
-
-    const daylight = !resolved ? "—" : resolved.daylightZone ? "Yes" : "No";
-    const plugLoad = st?.plugLoadControl842
-      ? resolved?.waivers.some((w) => w.requirementId === "plug_load_842")
-        ? "Waived"
-        : "§8.4.2 applies"
-      : "—";
-
-    // Room-specific override notes
-    const noteParts: string[] = [];
-    if (room.overrides?.roomNote) noteParts.push(room.overrides.roomNote);
-    if (resolved?.hasOverrides) noteParts.push("per-room override");
-
-    // Room-level non-ADD-set waivers (if user adds them later)
-    if (resolved) {
-      for (const w of resolved.waivers) {
-        if (w.scope !== "room") continue;
-        if (w.requirementId === "add1_set" || w.requirementId === "add2_set") continue;
-        counter += 1;
-        const req = requirementById(w.requirementId);
-        footnotes.push({
-          number: counter,
-          text: `${roomRef(room)}: ${req?.shortName ?? w.requirementId} waived — ${w.reason}${w.authority ? ` (${w.authority})` : ""}${w.dateIso ? ` [${w.dateIso.slice(0, 10)}]` : ""}`,
-        });
-        footnoteNumbers.push(counter);
-      }
-    }
-
-    return {
-      room,
-      group,
-      spaceTypeName: st?.name ?? room.spaceTypeId,
-      lpdAllowance: st?.lpdWattsPerSqft ?? 0,
-      installedLpd: lpdCheckForRoom(room, st?.lpdWattsPerSqft ?? 0),
-      groupLabel: group?.label ?? "—",
-      occupancy,
-      shutoff,
-      daylight,
-      plugLoad,
-      fixtureBreakdown: formatFixtureBreakdown(room),
-      note: noteParts.join(" · "),
-      footnoteNumbers,
-    };
-  });
+  const ungroupedRooms = project.rooms.filter((r) => !r.functionalGroupId);
 
   return (
     <DocSection heading="5. Room Schedule / Sequence of Operation">
-      {rows.length === 0 ? (
+      {project.rooms.length === 0 ? (
         <Prose muted>No rooms yet.</Prose>
       ) : (
         <>
-          <table className="doc-schedule w-full text-xs border-separate border-spacing-0 table-fixed">
-            <colgroup>
-              <col style={{ width: "2.5rem" }} />   {/* # */}
-              <col />                                {/* Name — flex */}
-              <col />                                {/* Space type — flex */}
-              <col style={{ width: "4rem" }} />     {/* Size */}
-              <col style={{ width: "3.5rem" }} />   {/* LPD allow */}
-              <col style={{ width: "5rem" }} />     {/* Installed */}
-              <col style={{ width: "3rem" }} />     {/* Grp (extra breathing room) */}
-              <col style={{ width: "6rem" }} />     {/* Occupancy */}
-              <col style={{ width: "6rem" }} />     {/* Shutoff */}
-              <col style={{ width: "3.5rem" }} />   {/* Daylight */}
-              <col style={{ width: "5rem" }} />     {/* Plug load */}
-              <col />                                {/* Notes — flex */}
-            </colgroup>
-            <thead>
-              <tr className="border-b-2 border-jet text-left align-bottom">
-                <th className="py-1.5 px-1.5 border-b-2 border-jet">#</th>
-                <th className="py-1.5 px-1.5 border-b-2 border-jet">Name</th>
-                <th className="py-1.5 px-1.5 border-b-2 border-jet">Space type</th>
-                <th className="py-1.5 px-1.5 tabular-nums text-right border-b-2 border-jet">
-                  Size<br/><span className="text-[10px] font-normal text-muted-foreground">ft²</span>
-                </th>
-                <th className="py-1.5 px-1.5 tabular-nums text-right border-b-2 border-jet">
-                  LPD<br/><span className="text-[10px] font-normal text-muted-foreground">allow</span>
-                </th>
-                <th className="py-1.5 px-1.5 text-center border-b-2 border-jet">
-                  Installed<br/><span className="text-[10px] font-normal text-muted-foreground">W/ft²</span>
-                </th>
-                <th className="py-1.5 px-2 text-center border-b-2 border-jet">Grp</th>
-                <th className="py-1.5 px-1.5 border-b-2 border-jet">Occupancy</th>
-                <th className="py-1.5 px-1.5 border-b-2 border-jet">Shutoff</th>
-                <th className="py-1.5 px-1.5 text-center border-b-2 border-jet">Daylight</th>
-                <th className="py-1.5 px-1.5 border-b-2 border-jet">Plug load</th>
-                <th className="py-1.5 px-1.5 border-b-2 border-jet">Notes</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r) => (
-                <tr key={r.room.id} className="align-top">
-                  <td className="py-1.5 px-1.5 font-mono border-b border-border">{r.room.number || "—"}</td>
-                  <td className="py-1.5 px-1.5 border-b border-border">
-                    {r.room.name || <span className="italic text-muted-foreground">(unnamed)</span>}
-                  </td>
-                  <td className="py-1.5 px-1.5 text-muted-foreground border-b border-border">{r.spaceTypeName}</td>
-                  <td className="py-1.5 px-1.5 tabular-nums text-right whitespace-nowrap border-b border-border">
-                    {r.room.sizeSqft.toLocaleString()}
-                  </td>
-                  <td className="py-1.5 px-1.5 tabular-nums text-right whitespace-nowrap border-b border-border">
-                    {r.lpdAllowance.toFixed(2)}
-                  </td>
-                  <td className="py-1.5 px-1.5 text-center border-b border-border">
-                    <InstalledLpdPill check={r.installedLpd} />
-                  </td>
-                  <td className="py-1.5 px-2 font-semibold text-center border-b border-border">{r.groupLabel}</td>
-                  <td className="py-1.5 px-1.5 border-b border-border">{r.occupancy}</td>
-                  <td className="py-1.5 px-1.5 border-b border-border">{r.shutoff}</td>
-                  <td className="py-1.5 px-1.5 text-center border-b border-border">{r.daylight}</td>
-                  <td className="py-1.5 px-1.5 border-b border-border">{r.plugLoad}</td>
-                  <td className="py-1.5 px-1.5 border-b border-border">
-                    {r.fixtureBreakdown && (
-                      <div className="text-muted-foreground text-[10px] leading-snug">
-                        {r.fixtureBreakdown}
-                      </div>
-                    )}
-                    {r.note && <div>{r.note}</div>}
-                    {r.footnoteNumbers.map((n) => (
-                      <sup key={n} className="ml-0.5 text-spark">[{n}]</sup>
-                    ))}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-            <tfoot>
-              <tr className="text-xs tabular-nums">
-                <td colSpan={3} className="py-1.5 pt-2 px-1.5 font-semibold">Totals</td>
-                <td className="py-1.5 pt-2 px-1.5 text-right font-semibold whitespace-nowrap">
-                  {project.rooms.reduce((s, r) => s + (r.sizeSqft || 0), 0).toLocaleString()}
-                </td>
-                <td className="py-1.5 pt-2 px-1.5 text-right font-semibold whitespace-nowrap">
-                  {(
-                    project.rooms.reduce(
-                      (s, r) =>
-                        s +
-                        (r.sizeSqft || 0) * (spaceTypeById(r.spaceTypeId)?.lpdWattsPerSqft ?? 0),
-                      0,
-                    ) / Math.max(1, project.rooms.reduce((s, r) => s + (r.sizeSqft || 0), 0))
-                  ).toFixed(2)}
-                </td>
-                <td className="py-1.5 pt-2 px-1.5 text-center">
-                  <InstalledLpdPill check={aggregateInstalledLpd(project)} />
-                </td>
-                <td colSpan={6} className="py-1.5 pt-2 px-1.5 text-muted-foreground">
-                  allowance avg W/ft² · installed rollup
-                </td>
-              </tr>
-            </tfoot>
-          </table>
+          <div className="doc-schedule space-y-5 text-xs">
+            {project.functionalGroups.map((group) => (
+              <GroupBlock
+                key={group.id}
+                group={group}
+                project={project}
+                addFootnote={addFootnote}
+                requirementsLayout={requirementsLayout}
+              />
+            ))}
+            {ungroupedRooms.length > 0 && (
+              <div className="border-t border-border pt-3">
+                <DocLabel>Ungrouped rooms</DocLabel>
+                <ul className="mt-1 space-y-1.5">
+                  {ungroupedRooms.map((room) => (
+                    <RoomLine
+                      key={room.id}
+                      room={room}
+                      group={undefined}
+                      addFootnote={addFootnote}
+                    />
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+
+          <LpdTotalsMath project={project} />
 
           {footnotes.length > 0 && (
             <div className="mt-3 pt-2 border-t border-dashed border-border">
@@ -655,6 +583,635 @@ function RoomScheduleBlock({ project }: { project: Project }) {
         </>
       )}
     </DocSection>
+  );
+}
+
+/**
+ * Group-hoisted block: one per functional group. Header → installed LPD
+ * chip → full requirements table (every applicable code rule with a plain-
+ * English how-it's-met explanation, code reference muted) → room list. The
+ * requirements table is what reviewers / AHJ scan first; rooms below only
+ * repeat their deltas (overrides, waivers, notes) plus fixtures.
+ */
+function GroupBlock({
+  group,
+  project,
+  addFootnote,
+  requirementsLayout = "expanded",
+}: {
+  group: FunctionalGroup;
+  project: Project;
+  addFootnote: (text: string) => number;
+  requirementsLayout?: RequirementsLayout;
+}) {
+  const rooms = roomsForGroup(project, group);
+  const st = spaceTypeById(group.spaceTypeId);
+  const { parent, modifier } = st
+    ? splitSpaceTypeName(st.name)
+    : { parent: group.description || "—", modifier: "" };
+  const totalSf = rooms.reduce((s, r) => s + (r.sizeSqft || 0), 0);
+  const groupLpd = st ? lpdCheckForGroup(rooms, st.lpdWattsPerSqft) : null;
+  const narrative = useMemo(() => groupNarrative(project, group), [project, group]);
+
+  // Bridge group-level waiver footnotes from the narrative into the schedule's
+  // shared footnote counter so the numbers don't collide across groups. We
+  // re-emit each waived/AHJ-override line into addFootnote() and remap.
+  const requirementRows = narrative.requirementLines.map((line) => {
+    let footnoteNumber = line.footnoteNumber;
+    if (line.status === "waived") {
+      const orig = narrative.footnotes.find((f) => f.number === line.footnoteNumber);
+      if (orig) {
+        footnoteNumber = addFootnote(`Group ${group.label}: ${orig.text}`);
+      }
+    }
+    return { ...line, footnoteNumber };
+  });
+
+  return (
+    <div className="doc-group border-t border-jet pt-2">
+      <header className="flex items-baseline justify-between gap-3 mb-1.5 flex-wrap">
+        <div className="flex items-baseline gap-2 flex-wrap min-w-0">
+          <span className="inline-block rounded bg-jet text-primary-foreground px-1.5 py-0.5 text-[11px] font-semibold tabular-nums shrink-0">
+            {group.label}
+          </span>
+          <span className="font-semibold">{parent}</span>
+          {modifier && (
+            <span className="italic text-muted-foreground text-[11px]">{modifier}</span>
+          )}
+        </div>
+        <div className="text-[11px] tabular-nums text-muted-foreground shrink-0">
+          {rooms.length} room{rooms.length === 1 ? "" : "s"} · {totalSf.toLocaleString()} sf
+          {st ? ` · LPD allow ${st.lpdWattsPerSqft.toFixed(2)}` : ""}
+        </div>
+      </header>
+
+      {groupLpd && groupLpd.status !== "unknown" && (
+        <div className="mb-2 flex items-center gap-2 text-[11px]">
+          <span className="text-muted-foreground">Installed lighting power</span>
+          <InstalledLpdPill check={groupLpd} />
+          <span className="text-muted-foreground">group rollup</span>
+        </div>
+      )}
+
+      {requirementRows.length > 0 && (
+        <RequirementsRender
+          rows={requirementRows}
+          narrative={narrative}
+          layout={requirementsLayout}
+        />
+      )}
+
+      {rooms.length > 0 ? (
+        <ul className="space-y-1.5">
+          {rooms.map((room) => (
+            <RoomLine
+              key={room.id}
+              room={room}
+              group={group}
+              addFootnote={addFootnote}
+            />
+          ))}
+        </ul>
+      ) : (
+        <div className="text-[11px] italic text-muted-foreground">No rooms in this group.</div>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Requirements layout variants — picked from the Section 5 layout tab. All
+// share the same data (narrative.requirementLines + narrative.sequenceParagraph)
+// but render with very different density/structure tradeoffs. The selected
+// variant is also what the PDF renders.
+// ─────────────────────────────────────────────────────────────────────────────
+
+type ReqRow = ReturnType<typeof groupNarrative>["requirementLines"][number];
+
+/** Tighter section reference — drops repeated "9.4.1.1" prefix on §a-§i. */
+function shortSection(section: string): string {
+  // 9.4.1.1(a) → §a; 9.4.1.1(b)/(c) → §b/c; 8.4.2 → §8.4.2; "Beyond code" → ""
+  const m = section.match(/^9\.4\.1\.1\(([a-i])\)(?:\/\(([a-i])\))?(?:\/\(([a-i])\))?$/);
+  if (m) {
+    const letters = [m[1], m[2], m[3]].filter(Boolean).join("/");
+    return `§${letters}`;
+  }
+  if (section === "Beyond code") return "";
+  return /^\d/.test(section) ? `§${section}` : section;
+}
+
+/** Categorize a requirement for the SoO layout. */
+type SooCategory = "turnOn" | "turnOff" | "daylight" | "plugLoad" | "addition";
+function sooCategory(reqId: string, status: ReqRow["status"]): SooCategory {
+  if (status === "addition") return "addition";
+  if (reqId.startsWith("daylight_")) return "daylight";
+  if (reqId === "plug_load_842") return "plugLoad";
+  if (
+    reqId === "auto_full_off" ||
+    reqId === "auto_partial_off" ||
+    reqId === "scheduled_shutoff" ||
+    reqId === "add2_set"
+  ) {
+    return "turnOff";
+  }
+  // local_control, restricted_*, bilevel, add1_set, etc → turn-on side
+  return "turnOn";
+}
+
+function RequirementsRender({
+  rows,
+  narrative,
+  layout,
+}: {
+  rows: ReqRow[];
+  narrative: GroupNarrative;
+  layout: RequirementsLayout;
+}) {
+  switch (layout) {
+    case "compact":
+      return <RequirementsCompact rows={rows} />;
+    case "soo":
+      return <RequirementsSoO rows={rows} />;
+    case "pills":
+      return <RequirementsPills rows={rows} narrative={narrative} />;
+    case "hybrid":
+      return <RequirementsHybrid rows={rows} />;
+    case "expanded":
+    default:
+      return <RequirementsExpanded rows={rows} />;
+  }
+}
+
+/**
+ * Expanded — original layout. Each rule on two lines (bold name + how-met
+ * sentence) with section reference muted on the right.
+ */
+function RequirementsExpanded({ rows }: { rows: ReqRow[] }) {
+  return (
+    <div className="mb-2 rounded-sm border border-border bg-muted/10 px-2.5 py-1.5">
+      <div className="text-[10px] uppercase tracking-widest font-semibold text-muted-foreground mb-1">
+        Code requirements & how this group meets each
+      </div>
+      <ul className="divide-y divide-border/60">
+        {rows.map((line) => (
+          <RequirementRow key={line.requirementId} line={line} />
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/**
+ * Compact — one-line rows in a 3-column grid (dot · headline + how-met · §).
+ * N/A items collapse into a single muted footer line. Halves vertical space
+ * vs. Expanded while keeping every requirement visible with its explanation.
+ */
+function RequirementsCompact({ rows }: { rows: ReqRow[] }) {
+  const active = rows.filter((r) => r.status !== "na");
+  const naRows = rows.filter((r) => r.status === "na");
+  return (
+    <div className="mb-2 rounded-sm border border-border bg-muted/10 px-2.5 py-1.5">
+      <div className="text-[10px] uppercase tracking-widest font-semibold text-muted-foreground mb-1">
+        Code requirements
+      </div>
+      <ul className="space-y-[3px]">
+        {active.map((line) => (
+          <CompactRow key={line.requirementId} line={line} />
+        ))}
+      </ul>
+      {naRows.length > 0 && (
+        <div className="mt-1.5 pt-1.5 border-t border-dashed border-border/60 text-[10px] text-muted-foreground">
+          <span className="font-semibold">Not applicable here:</span>{" "}
+          {naRows.map((r, i) => (
+            <span key={r.requirementId}>
+              {i > 0 && " · "}
+              {r.shortName} ({shortSection(r.section)} — {naReasonShort(r.howMet)})
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CompactRow({ line }: { line: ReqRow }) {
+  const dotClass =
+    line.status === "active"
+      ? "bg-jet"
+      : line.status === "waived"
+        ? "bg-spark"
+        : line.status === "addition"
+          ? "bg-infrared"
+          : "border border-muted-foreground/40 bg-transparent";
+  return (
+    <li className="grid grid-cols-[10px_minmax(0,_max-content)_1fr_max-content] gap-x-2 items-baseline text-[11px]">
+      <span className={cn("size-1.5 rounded-full mt-[5px]", dotClass)} aria-hidden />
+      <span
+        className={cn(
+          "font-semibold whitespace-nowrap",
+          line.status === "waived" && "line-through text-muted-foreground",
+          line.status === "addition" && "text-infrared",
+        )}
+      >
+        {line.shortName}
+        {line.footnoteNumber !== undefined && (
+          <sup className="ml-0.5 text-[10px] text-spark">[{line.footnoteNumber}]</sup>
+        )}
+      </span>
+      <span className="text-foreground/75 truncate">{line.howMet}</span>
+      <span className="text-[10px] text-muted-foreground tabular-nums">
+        {shortSection(line.section)}
+      </span>
+    </li>
+  );
+}
+
+/**
+ * Sequence of Operation — two columns side-by-side, organized by what each
+ * rule does. Left = how lights turn on (manual control, occupancy, dimming).
+ * Right = how they turn off (auto-off variants). A small footer row covers
+ * daylight + plug-load (since those are the most common N/A categories).
+ */
+function RequirementsSoO({ rows }: { rows: ReqRow[] }) {
+  const buckets: Record<SooCategory, ReqRow[]> = {
+    turnOn: [],
+    turnOff: [],
+    daylight: [],
+    plugLoad: [],
+    addition: [],
+  };
+  for (const r of rows) buckets[sooCategory(r.requirementId, r.status)].push(r);
+
+  return (
+    <div className="mb-2 rounded-sm border border-border bg-muted/10 px-2.5 py-1.5">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-1.5">
+        <SooColumn label="How lights turn on" rows={buckets.turnOn} />
+        <SooColumn label="How lights turn off" rows={buckets.turnOff} />
+      </div>
+      {(buckets.daylight.length > 0 || buckets.plugLoad.length > 0 || buckets.addition.length > 0) && (
+        <div className="mt-1.5 pt-1.5 border-t border-dashed border-border/60 grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-1">
+          {buckets.daylight.length > 0 && (
+            <SooColumn label="Daylight" rows={buckets.daylight} />
+          )}
+          {buckets.plugLoad.length > 0 && (
+            <SooColumn label="Plug load" rows={buckets.plugLoad} />
+          )}
+          {buckets.addition.length > 0 && (
+            <SooColumn label="Beyond code" rows={buckets.addition} />
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SooColumn({ label, rows }: { label: string; rows: ReqRow[] }) {
+  if (rows.length === 0) return null;
+  return (
+    <div>
+      <div className="text-[10px] uppercase tracking-widest font-semibold text-muted-foreground mb-0.5">
+        {label}
+      </div>
+      <ul className="space-y-[3px]">
+        {rows.map((line) => {
+          const dotClass =
+            line.status === "active"
+              ? "bg-jet"
+              : line.status === "waived"
+                ? "bg-spark"
+                : line.status === "addition"
+                  ? "bg-infrared"
+                  : "border border-muted-foreground/40 bg-transparent";
+          return (
+            <li
+              key={line.requirementId}
+              className="flex items-baseline gap-1.5 text-[11px] leading-snug"
+            >
+              <span className={cn("size-1.5 rounded-full mt-[5px] shrink-0", dotClass)} aria-hidden />
+              <span className="flex-1 min-w-0">
+                <span
+                  className={cn(
+                    "font-medium",
+                    line.status === "waived" && "line-through text-muted-foreground",
+                    line.status === "na" && "text-muted-foreground italic",
+                    line.status === "addition" && "text-infrared",
+                  )}
+                >
+                  {line.shortName}
+                </span>
+                {line.status !== "na" && (
+                  <span className="text-foreground/70"> — {line.howMet}</span>
+                )}
+                {line.status === "na" && (
+                  <span className="text-muted-foreground"> — {naReasonShort(line.howMet)}</span>
+                )}
+              </span>
+              <span className="text-[10px] text-muted-foreground tabular-nums shrink-0">
+                {shortSection(line.section)}
+              </span>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
+/**
+ * Pills + narrative — a chip dashboard of active rules at the top, an N/A
+ * tagline, then the plain-English sequence-of-operation paragraph
+ * (already produced by groupNarrative for Section 4). Reads like a one-page
+ * cheat sheet plus prose explanation.
+ */
+function RequirementsPills({
+  rows,
+  narrative,
+}: {
+  rows: ReqRow[];
+  narrative: GroupNarrative;
+}) {
+  const active = rows.filter((r) => r.status === "active" || r.status === "addition");
+  const waived = rows.filter((r) => r.status === "waived");
+  const naRows = rows.filter((r) => r.status === "na");
+  return (
+    <div className="mb-2 rounded-sm border border-border bg-muted/10 px-2.5 py-2 space-y-1.5">
+      <div className="flex items-baseline gap-2 flex-wrap">
+        <span className="text-[10px] uppercase tracking-widest font-semibold text-muted-foreground shrink-0">
+          Active
+        </span>
+        {active.map((r) => (
+          <Pill key={r.requirementId} line={r} kind="active" />
+        ))}
+        {waived.map((r) => (
+          <Pill key={r.requirementId} line={r} kind="waived" />
+        ))}
+      </div>
+      {naRows.length > 0 && (
+        <div className="text-[10px] text-muted-foreground">
+          <span className="font-semibold uppercase tracking-widest mr-1">Not req&rsquo;d</span>
+          {naRows.map((r, i) => (
+            <span key={r.requirementId}>
+              {i > 0 && " · "}
+              {r.shortName} ({shortSection(r.section)} — {naReasonShort(r.howMet)})
+            </span>
+          ))}
+        </div>
+      )}
+      <p className="text-[11px] leading-snug text-foreground/85 pt-0.5">
+        {narrative.sequenceParagraph}
+      </p>
+    </div>
+  );
+}
+
+function Pill({
+  line,
+  kind,
+}: {
+  line: ReqRow;
+  kind: "active" | "waived";
+}) {
+  const cls =
+    kind === "waived"
+      ? "border-spark text-spark"
+      : line.status === "addition"
+        ? "border-infrared text-infrared"
+        : "border-jet text-jet";
+  return (
+    <span
+      className={cn(
+        "inline-flex items-baseline gap-1 rounded border px-1.5 py-0 text-[10px] leading-snug",
+        cls,
+      )}
+      title={line.howMet}
+    >
+      <span className={kind === "waived" ? "line-through" : ""}>{line.shortName}</span>
+      <span className="text-muted-foreground">{shortSection(line.section)}</span>
+      {line.footnoteNumber !== undefined && (
+        <sup className="text-spark">[{line.footnoteNumber}]</sup>
+      )}
+    </span>
+  );
+}
+
+/**
+ * Hybrid — same expanded format as today for active rules, but N/A entries
+ * collapse into one muted footer line. Lightest-touch density win.
+ */
+function RequirementsHybrid({ rows }: { rows: ReqRow[] }) {
+  const active = rows.filter((r) => r.status !== "na");
+  const naRows = rows.filter((r) => r.status === "na");
+  return (
+    <div className="mb-2 rounded-sm border border-border bg-muted/10 px-2.5 py-1.5">
+      <div className="text-[10px] uppercase tracking-widest font-semibold text-muted-foreground mb-1">
+        Code requirements & how this group meets each
+      </div>
+      <ul className="divide-y divide-border/60">
+        {active.map((line) => (
+          <RequirementRow key={line.requirementId} line={line} />
+        ))}
+      </ul>
+      {naRows.length > 0 && (
+        <div className="mt-1.5 pt-1.5 border-t border-dashed border-border/60 text-[10px] text-muted-foreground">
+          <span className="font-semibold">Not applicable here:</span>{" "}
+          {naRows.map((r, i) => (
+            <span key={r.requirementId}>
+              {i > 0 && " · "}
+              {r.shortName} ({shortSection(r.section)} — {naReasonShort(r.howMet)})
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Trim N/A reasons to a tight phrase for the footer line. The full howMet
+ * sentence reads "No windows in this group, so daylight controls are not
+ * required here." — that's verbose for a footer; we just want "no windows".
+ */
+function naReasonShort(howMet: string): string {
+  const lower = howMet.toLowerCase();
+  if (lower.includes("no windows")) return "no windows";
+  if (lower.includes("no skylights")) return "no skylights";
+  if (lower.includes("below the 150 w") || lower.includes("150 w threshold")) {
+    return "below 150 W threshold";
+  }
+  if (lower.includes("not yet selected")) return "not yet selected";
+  return howMet.length > 60 ? howMet.slice(0, 57) + "…" : howMet;
+}
+
+/**
+ * One row of the per-group requirements table. Status drives the styling:
+ *   active   → solid jet dot, normal text
+ *   na       → hollow muted dot, italic muted text (kept on the list so a
+ *              reviewer sees we considered this rule and *why* it doesn't apply)
+ *   waived   → spark dot, line-through name, footnote marker
+ *   addition → infrared dot, "beyond code" tag
+ * Code section reference renders muted at the right edge so the plain-
+ * English headline reads first.
+ */
+function RequirementRow({
+  line,
+}: {
+  line: {
+    requirementId: string;
+    shortName: string;
+    section: string;
+    howMet: string;
+    status: "active" | "waived" | "addition" | "na";
+    footnoteNumber?: number;
+  };
+}) {
+  const dotColor =
+    line.status === "active"
+      ? "bg-jet"
+      : line.status === "waived"
+        ? "bg-spark"
+        : line.status === "addition"
+          ? "bg-infrared"
+          : "border border-muted-foreground/40 bg-transparent";
+  const nameClass = cn(
+    "font-medium text-[12px]",
+    line.status === "waived" && "line-through text-muted-foreground",
+    line.status === "na" && "text-muted-foreground italic",
+    line.status === "addition" && "text-infrared",
+  );
+  const sectionLabel = line.section.startsWith("9.4")
+    ? `§${line.section}`
+    : line.section === "Beyond code"
+      ? "Beyond code"
+      : `§${line.section}`;
+  return (
+    <li className="flex gap-2 py-1">
+      <span
+        className={cn("mt-[6px] inline-block size-1.5 rounded-full shrink-0", dotColor)}
+        aria-hidden
+      />
+      <div className="flex-1 min-w-0">
+        <div className="flex items-baseline justify-between gap-2">
+          <div className={nameClass}>
+            {line.shortName}
+            {line.footnoteNumber !== undefined && (
+              <sup className="ml-0.5 text-[10px] text-spark">[{line.footnoteNumber}]</sup>
+            )}
+            {line.status === "addition" && (
+              <span className="ml-1.5 text-[10px] text-infrared font-normal">(beyond code)</span>
+            )}
+            {line.status === "na" && (
+              <span className="ml-1.5 text-[10px] text-muted-foreground font-normal not-italic">
+                — Not applicable
+              </span>
+            )}
+          </div>
+          <div className="text-[10px] text-muted-foreground tabular-nums shrink-0">
+            {sectionLabel}
+          </div>
+        </div>
+        <div className={cn(
+          "text-[11px] leading-snug",
+          line.status === "active" || line.status === "addition"
+            ? "text-foreground/80"
+            : "text-muted-foreground",
+        )}>
+          {line.howMet}
+        </div>
+      </div>
+    </li>
+  );
+}
+
+/**
+ * One room line under its group. Shows #, name, size, installed LPD chip;
+ * stacks italic fixture lines and an "Override:" delta line when the room
+ * diverges from the group (ADD1/ADD2/daylight changed, waivers, room note).
+ */
+function RoomLine({
+  room,
+  group,
+  addFootnote,
+}: {
+  room: Room;
+  group: FunctionalGroup | undefined;
+  addFootnote: (text: string) => number;
+}) {
+  const st = spaceTypeById(room.spaceTypeId);
+  const resolved = group ? resolveRoomSettings(room, group) : null;
+  const installed = lpdCheckForRoom(room, st?.lpdWattsPerSqft ?? 0);
+  const fixtures = fixtureBreakdownLines(room);
+
+  const overrideParts: React.ReactNode[] = [];
+  if (room.overrides?.add1Selection !== undefined) {
+    const lbl = room.overrides.add1Selection
+      ? shortLabel(room.overrides.add1Selection)
+      : "none";
+    overrideParts.push(`occupancy → ${lbl}`);
+  }
+  if (room.overrides?.add2Selections !== undefined) {
+    const lbl =
+      room.overrides.add2Selections.length > 0
+        ? room.overrides.add2Selections.map(shortLabel).join(" + ")
+        : "none";
+    overrideParts.push(`shutoff → ${lbl}`);
+  }
+  if (room.overrides?.daylightZone !== undefined) {
+    overrideParts.push(`daylight → ${room.overrides.daylightZone ? "Y" : "N"}`);
+  }
+  // Room-level (not group-level) waivers → footnote
+  if (resolved) {
+    for (const w of resolved.waivers) {
+      if (w.scope !== "room") continue;
+      const req = requirementById(w.requirementId);
+      const n = addFootnote(
+        `${roomRef(room)}: ${req?.shortName ?? w.requirementId} waived — ${w.reason}${w.authority ? ` (${w.authority})` : ""}${w.dateIso ? ` [${w.dateIso.slice(0, 10)}]` : ""}`,
+      );
+      overrideParts.push(
+        <span key={`w${n}`}>
+          waive {req?.shortName ?? w.requirementId}
+          <sup className="text-spark ml-0.5">[{n}]</sup>
+        </span>,
+      );
+    }
+  }
+  if (room.overrides?.roomNote?.trim()) {
+    overrideParts.push(room.overrides.roomNote.trim());
+  }
+
+  return (
+    <li className="pl-3 border-l-2 border-border">
+      <div className="flex items-baseline gap-2 flex-wrap">
+        <span className="font-mono text-muted-foreground shrink-0 min-w-[2rem]">
+          {room.number || "—"}
+        </span>
+        <span className="font-medium">
+          {room.name || <span className="italic text-muted-foreground">(unnamed)</span>}
+        </span>
+        <span className="text-muted-foreground tabular-nums">
+          · {room.sizeSqft.toLocaleString()} sf
+        </span>
+        <InstalledLpdPill check={installed} />
+      </div>
+      {fixtures.length > 0 && (
+        <ul className="mt-0.5 space-y-0 text-[10px] italic text-muted-foreground leading-snug break-words">
+          {fixtures.map((line, i) => (
+            <li key={i}>{line}</li>
+          ))}
+        </ul>
+      )}
+      {overrideParts.length > 0 && (
+        <div className="mt-0.5 text-[10px] text-spark">
+          <span className="mr-1">▸</span>
+          <span className="text-muted-foreground">Override:</span>{" "}
+          {overrideParts.map((p, i) => (
+            <span key={i}>
+              {i > 0 && <span className="text-muted-foreground mx-1">·</span>}
+              {p}
+            </span>
+          ))}
+        </div>
+      )}
+    </li>
   );
 }
 
@@ -687,36 +1244,83 @@ function InstalledLpdPill({ check }: { check: LpdCheck }) {
   );
 }
 
-function aggregateInstalledLpd(project: Project): LpdCheck {
+/**
+ * Arithmetic breakdown shown under the Room Schedule's Totals row. Spells
+ * out the math — connected W, fixture count, total area, result, and
+ * allowance — so the reader can verify rather than trust the chip.
+ */
+function LpdTotalsMath({ project }: { project: Project }) {
   let totalW = 0;
-  let totalSf = 0;
+  let totalFixtures = 0;
+  let totalSfWithFixtures = 0;
   let allowanceW = 0;
-  let anyFixtures = false;
   for (const r of project.rooms) {
     const w = totalRoomWatts(r);
-    if (w > 0) {
-      anyFixtures = true;
-      totalW += w;
-      totalSf += r.sizeSqft;
-      allowanceW += (spaceTypeById(r.spaceTypeId)?.lpdWattsPerSqft ?? 0) * r.sizeSqft;
-    }
+    if (w <= 0) continue;
+    totalW += w;
+    totalFixtures += resolveRoomFixtures(r).reduce((s, f) => s + (f.count > 0 ? f.count : 0), 0);
+    totalSfWithFixtures += r.sizeSqft;
+    allowanceW += (spaceTypeById(r.spaceTypeId)?.lpdWattsPerSqft ?? 0) * r.sizeSqft;
   }
-  const allowance = totalSf > 0 ? allowanceW / totalSf : 0;
-  const installed = totalSf > 0 && totalW > 0 ? totalW / totalSf : null;
-  return {
-    installedWatts: totalW,
-    installedLpd: installed,
-    allowance,
-    status: !anyFixtures || installed === null
-      ? "unknown"
-      : installed <= allowance ? "pass" : "fail",
-  };
-}
+  const totalSfAll = project.rooms.reduce((s, r) => s + (r.sizeSqft || 0), 0);
 
+  if (totalW === 0) {
+    return (
+      <div className="mt-3 rounded-md border border-dashed border-border bg-muted/10 px-3 py-2 text-xs text-muted-foreground">
+        Enter fixture counts and wattages (click the Fixtures cell in the Groups matrix) to
+        see the installed LPD math here.
+      </div>
+    );
+  }
 
-function hasAdd(st: ReturnType<typeof spaceTypeById>, app: "ADD1" | "ADD2"): boolean {
-  if (!st) return false;
-  return Object.values(st.controls).some((v) => v === app);
+  const installed = totalW / totalSfWithFixtures;
+  const allowance = allowanceW / totalSfWithFixtures;
+  const pct = allowance > 0 ? Math.round((installed / allowance) * 100) : 0;
+  const pass = installed <= allowance;
+  const coverageNote =
+    totalSfWithFixtures < totalSfAll
+      ? ` (fixture data covers ${totalSfWithFixtures.toLocaleString()} of ${totalSfAll.toLocaleString()} ft²; the rest hasn't been entered yet)`
+      : "";
+
+  return (
+    <div className="mt-3 rounded-md border border-border bg-muted/10 px-3 py-2 text-xs">
+      <div className="text-[10px] uppercase tracking-widest font-semibold text-muted-foreground mb-1.5">
+        Installed LPD — math
+      </div>
+      <div className="grid grid-cols-[max-content_1fr] gap-x-3 gap-y-0.5 font-mono tabular-nums">
+        <div className="text-muted-foreground">Connected</div>
+        <div>
+          {totalW.toLocaleString()} W across {totalFixtures.toLocaleString()} fixture
+          {totalFixtures === 1 ? "" : "s"}
+        </div>
+        <div className="text-muted-foreground">Area</div>
+        <div>{totalSfWithFixtures.toLocaleString()} ft²</div>
+        <div className="text-muted-foreground">Installed</div>
+        <div>
+          {totalW.toLocaleString()} W ÷ {totalSfWithFixtures.toLocaleString()} ft² ={" "}
+          <span className="font-semibold">{installed.toFixed(2)} W/ft²</span>
+        </div>
+        <div className="text-muted-foreground">Allowance</div>
+        <div>
+          {allowance.toFixed(2)} W/ft² <span className="text-muted-foreground">(weighted avg)</span>
+        </div>
+        <div className="text-muted-foreground">Result</div>
+        <div
+          className={cn(
+            "font-semibold",
+            pass ? "text-emerald-700" : "text-destructive",
+          )}
+        >
+          {pct}% of cap — {pass ? "pass" : "fail"}
+        </div>
+      </div>
+      {coverageNote && (
+        <div className="mt-1.5 text-[10px] italic text-muted-foreground">
+          {coverageNote.replace(/^\s*\(/, "").replace(/\)$/, "")}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function shortLabel(col: string): string {

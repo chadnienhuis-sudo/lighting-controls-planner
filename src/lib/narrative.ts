@@ -11,7 +11,12 @@ import type {
 import { spaceTypeById, applicableRequirements } from "@/data/space-types";
 import { requirementById, REQUIREMENTS } from "@/data/requirements";
 import { iesTargetById } from "@/data/ies-targets";
-import { roomsForGroup } from "@/lib/functional-groups";
+import {
+  roomsForGroup,
+  resolveDaylight,
+  sidelightingTriggered,
+  toplightingTriggered,
+} from "@/lib/functional-groups";
 
 /**
  * Output for a single functional group — everything the document renderer
@@ -27,10 +32,18 @@ export interface GroupNarrative {
   /** Bullet-form requirement list, with a "waived" flag per item. */
   requirementLines: Array<{
     requirementId: string;
+    /** Plain-English requirement name — the headline a non-engineer reads first. */
     shortName: string;
+    /** Code section reference (e.g. "9.4.1.1(a)") — rendered muted/secondary. */
     section: string;
+    /** Original code description text. */
     description: string;
-    status: "active" | "waived" | "addition";
+    /**
+     * Plain-English sentence describing how this group meets the requirement
+     * (or, when status is "na" / "waived", why it doesn't apply).
+     */
+    howMet: string;
+    status: "active" | "waived" | "addition" | "na";
     /** If waived, footnote number to show after the line. */
     footnoteNumber?: number;
     /** If this is an addition, note beyond-code context. */
@@ -55,6 +68,89 @@ const COLUMN_NAMES: Record<ControlColumnId, string> = {
   auto_full_off: "automatic full-off after 20-minute vacancy",
   scheduled_shutoff: "scheduled shutoff with occupant override",
 };
+
+/**
+ * Plain-English explanation of HOW the group meets a given requirement (or
+ * why it doesn't apply). Keep these sentences concise — one per requirement
+ * — so the Section 5 group cards can render a complete table on a portrait
+ * page without bloating to multiple pages.
+ */
+function howMet(
+  reqId: string,
+  ctx: {
+    status: "active" | "na" | "waived" | "addition";
+    naReason?: string;
+    waiverReason?: string;
+    additionReason?: string;
+    add1?: ControlColumnId | null;
+    add2?: ControlColumnId[];
+    add2Stacked?: boolean;
+    fullOffActive?: boolean;
+  },
+): string {
+  if (ctx.status === "waived") {
+    return ctx.waiverReason
+      ? `Waived by AHJ / owner — ${ctx.waiverReason}`
+      : "Waived by AHJ / owner — see footnote.";
+  }
+  if (ctx.status === "na") {
+    return ctx.naReason ?? "Not applicable to this group.";
+  }
+  if (ctx.status === "addition") {
+    return ctx.additionReason
+      ? `Beyond code — ${ctx.additionReason}`
+      : "Beyond-code addition selected for this group.";
+  }
+  switch (reqId) {
+    case "local_control":
+      return "A wall switch at the room entry lets occupants turn lighting off at any time.";
+    case "restricted_manual_on":
+      return "Lighting only turns on by manual action — occupancy sensors only turn lighting off.";
+    case "restricted_partial_auto_on":
+      return "Occupancy sensors automatically turn on up to 50% of power; the rest needs manual action.";
+    case "bilevel":
+      return "Continuous dimming or stepped control with at least one intermediate level between full-on and off.";
+    case "daylight_sidelighting":
+      return "Daylight-responsive controls dim luminaires in the primary sidelit zone as window contribution increases.";
+    case "daylight_toplighting":
+      return "Daylight-responsive controls dim luminaires under skylights as toplighting contribution increases.";
+    case "auto_partial_off":
+      if (ctx.fullOffActive) {
+        return "Met by Auto full-off — turning fully off exceeds the at-least-50% reduction this rule requires.";
+      }
+      return "Lighting automatically reduces to 50% or less of full power within 20 minutes of vacancy.";
+    case "auto_full_off":
+      return "Lighting automatically turns fully off within 20 minutes of vacancy.";
+    case "scheduled_shutoff":
+      return "A time-of-day schedule turns lighting off; occupants can override for a limited period.";
+    case "plug_load_842":
+      return "At least 50% of receptacles are automatically controlled (occupancy sensor or schedule) and permanently marked.";
+  }
+  return "Met per the controls strategy described above.";
+}
+
+/**
+ * Cleaner, more "headline" labels for the Section 5 requirements list.
+ * The `requirements.ts` shortNames are accurate but a little code-flavored
+ * ("Restricted to partial auto-on", "Daylight-responsive — sidelighting"). For
+ * the deliverable's first read we want them tighter and plainer. Falls back
+ * to the original shortName when no override exists.
+ */
+const PLAIN_LABEL_OVERRIDES: Record<string, string> = {
+  local_control: "Local manual control",
+  restricted_manual_on: "Manual-on only (occupancy)",
+  restricted_partial_auto_on: "Partial auto-on (occupancy)",
+  bilevel: "Bilevel / dimming control",
+  daylight_sidelighting: "Daylight-responsive sidelighting",
+  daylight_toplighting: "Daylight-responsive toplighting",
+  auto_partial_off: "Automatic partial-off",
+  auto_full_off: "Automatic full-off",
+  scheduled_shutoff: "Scheduled shutoff",
+  plug_load_842: "Automatic receptacle control",
+};
+function plainLabel(reqId: string, fallback: string): string {
+  return PLAIN_LABEL_OVERRIDES[reqId] ?? fallback;
+}
 
 function formatWaiver(w: Waiver, fallbackName?: string): string {
   const parts: string[] = [];
@@ -135,20 +231,37 @@ export function groupNarrative(project: Project, group: FunctionalGroup): GroupN
     sentences.push("Luminaires support bilevel or continuous dimming per §9.4.1.1(d).");
   }
 
-  // Daylight
-  const hasSide = reqSet.has("daylight_sidelighting") && !waivedIds.has("daylight_sidelighting");
-  const hasTop = reqSet.has("daylight_toplighting") && !waivedIds.has("daylight_toplighting");
-  if (group.daylightZone && (hasSide || hasTop)) {
+  // Daylight — §9.4.1.1(e) and (f) only activate when the space type has the REQ
+  // AND the group has the matching glazing AND the zone exceeds 150 W connected.
+  const hasSideReq = reqSet.has("daylight_sidelighting") && !waivedIds.has("daylight_sidelighting");
+  const hasTopReq = reqSet.has("daylight_toplighting") && !waivedIds.has("daylight_toplighting");
+  const sideActive = hasSideReq && sidelightingTriggered(group, spaceType);
+  const topActive = hasTopReq && toplightingTriggered(group, spaceType);
+  const dl = resolveDaylight(group);
+
+  if (sideActive || topActive) {
     const zones: string[] = [];
-    if (hasSide) zones.push("primary sidelit zone");
-    if (hasTop) zones.push("toplit zone");
+    if (sideActive) zones.push("primary sidelit zone");
+    if (topActive) zones.push("toplit zone");
     sentences.push(
       `Daylight-responsive controls automatically reduce power in the ${zones.join(" and ")} as daylight contribution increases.`,
     );
-  } else if (hasSide || hasTop) {
-    sentences.push(
-      "Daylight-responsive controls are required by Table 9.6.1 where sidelit or toplit zone thresholds are met; verify against the project's fenestration.",
-    );
+  } else {
+    // REQ exists but not triggered — explain why (so the narrative reads intentional, not incomplete).
+    const reasons: string[] = [];
+    if (hasSideReq && !dl.hasWindows) reasons.push("no windows");
+    if (hasSideReq && dl.hasWindows && !group.sidelightPowerOver150W) {
+      reasons.push("sidelit zone is below the 150 W §9.4.1.1(e) threshold");
+    }
+    if (hasTopReq && !dl.hasSkylights) reasons.push("no skylights");
+    if (hasTopReq && dl.hasSkylights && !group.toplightPowerOver150W) {
+      reasons.push("toplit zone is below the 150 W §9.4.1.1(f) threshold");
+    }
+    if (reasons.length > 0) {
+      sentences.push(
+        `Daylight-responsive controls are not triggered — ${reasons.join(" and ")}.`,
+      );
+    }
   }
 
   // Plug load
@@ -200,45 +313,85 @@ export function groupNarrative(project: Project, group: FunctionalGroup): GroupN
   for (const a of applicable.filter((x) => x.applicability === "REQ")) {
     const req = requirementById(a.requirementId);
     if (!req) continue;
+    // Daylight §e/§f stay on the list even when not triggered, but flip to
+    // status "na" with a plain-English reason. Reviewers see we considered
+    // the requirement and *why* it doesn't apply.
+    if (req.id === "daylight_sidelighting" && !sidelightingTriggered(group, spaceType)) {
+      requirementLines.push({
+        requirementId: req.id,
+        shortName: plainLabel(req.id, req.shortName),
+        section: req.section,
+        description: req.description,
+        status: "na",
+        howMet: howMet(req.id, {
+          status: "na",
+          naReason: !dl.hasWindows
+            ? "No windows in this group, so daylight controls are not required here."
+            : "Sidelit zone is below the 150 W threshold in §9.4.1.1(e), so controls are not required.",
+        }),
+      });
+      continue;
+    }
+    if (req.id === "daylight_toplighting" && !toplightingTriggered(group, spaceType)) {
+      requirementLines.push({
+        requirementId: req.id,
+        shortName: plainLabel(req.id, req.shortName),
+        section: req.section,
+        description: req.description,
+        status: "na",
+        howMet: howMet(req.id, {
+          status: "na",
+          naReason: !dl.hasSkylights
+            ? "No skylights in this group, so toplighting controls are not required here."
+            : "Toplit zone is below the 150 W threshold in §9.4.1.1(f), so controls are not required.",
+        }),
+      });
+      continue;
+    }
     const waiver = group.waivers.find((w) => w.requirementId === a.requirementId);
     if (waiver) {
       requirementLines.push({
         requirementId: req.id,
-        shortName: req.shortName,
+        shortName: plainLabel(req.id, req.shortName),
         section: req.section,
         description: req.description,
         status: "waived",
+        howMet: howMet(req.id, { status: "waived", waiverReason: waiver.reason }),
         footnoteNumber: waiverFootnote(waiver),
       });
     } else if (req.id === "auto_partial_off" && fullOffActive) {
       // Partial-off requirement is satisfied by full-off — log for transparency.
       requirementLines.push({
         requirementId: req.id,
-        shortName: req.shortName,
+        shortName: plainLabel(req.id, req.shortName),
         section: req.section,
         description: `${req.description} Satisfied by the Auto full-off control — turning off is a 100% reduction, which meets §9.4.1.1(g)'s ≥50% threshold.`,
         status: "active",
+        howMet: howMet(req.id, { status: "active", fullOffActive: true }),
       });
     } else {
       requirementLines.push({
         requirementId: req.id,
-        shortName: req.shortName,
+        shortName: plainLabel(req.id, req.shortName),
         section: req.section,
         description: req.description,
         status: "active",
+        howMet: howMet(req.id, { status: "active" }),
       });
     }
   }
 
   // Selected ADD1
   const add1Waiver = group.waivers.find((w) => w.requirementId === "add1_set");
+  const hasAdd1Column = applicable.some((a) => a.applicability === "ADD1");
   if (add1Waiver) {
     requirementLines.push({
       requirementId: "add1_set",
-      shortName: "Occupancy strategy (ADD1)",
+      shortName: "Occupancy strategy",
       section: "9.4.1.1(b)/(c)",
       description: "AHJ / owner override — restricted-on occupancy requirement waived for this group.",
       status: "waived",
+      howMet: howMet("", { status: "waived", waiverReason: add1Waiver.reason }),
       footnoteNumber: waiverFootnote(add1Waiver, "ADD1 occupancy strategy"),
     });
   } else if (group.add1Selection) {
@@ -246,38 +399,60 @@ export function groupNarrative(project: Project, group: FunctionalGroup): GroupN
     if (req) {
       requirementLines.push({
         requirementId: req.id,
-        shortName: req.shortName,
+        shortName: plainLabel(req.id, req.shortName),
         section: req.section,
         description: req.description,
         status: "active",
+        howMet: howMet(req.id, { status: "active" }),
       });
     }
+  } else if (hasAdd1Column) {
+    requirementLines.push({
+      requirementId: "add1_set",
+      shortName: "Occupancy strategy",
+      section: "9.4.1.1(b)/(c)",
+      description: "Pick one occupancy strategy from §9.4.1.1(b) or (c) for this group.",
+      status: "na",
+      howMet: "Not yet selected — choose Manual-on or Partial auto-on for this group on the Groups page.",
+    });
   }
 
   // Selected ADD2
   const add2Waiver = group.waivers.find((w) => w.requirementId === "add2_set");
+  const hasAdd2Column = applicable.some((a) => a.applicability === "ADD2");
   if (add2Waiver) {
     requirementLines.push({
       requirementId: "add2_set",
-      shortName: "Shutoff behavior (ADD2)",
+      shortName: "Automatic shutoff",
       section: "9.4.1.1(g)/(h)/(i)",
       description: "AHJ / owner override — automatic shutoff requirement waived for this group.",
       status: "waived",
+      howMet: howMet("", { status: "waived", waiverReason: add2Waiver.reason }),
       footnoteNumber: waiverFootnote(add2Waiver, "ADD2 shutoff behavior"),
     });
-  } else {
+  } else if (group.add2Selections.length > 0) {
     for (const col of group.add2Selections) {
       const req = requirementById(col);
       if (req) {
         requirementLines.push({
           requirementId: req.id,
-          shortName: req.shortName,
+          shortName: plainLabel(req.id, req.shortName),
           section: req.section,
           description: req.description,
           status: "active",
+          howMet: howMet(req.id, { status: "active" }),
         });
       }
     }
+  } else if (hasAdd2Column) {
+    requirementLines.push({
+      requirementId: "add2_set",
+      shortName: "Automatic shutoff",
+      section: "9.4.1.1(g)/(h)/(i)",
+      description: "Pick one shutoff strategy from §9.4.1.1(g)/(h)/(i) for this group.",
+      status: "na",
+      howMet: "Not yet selected — choose Auto full-off, Scheduled shutoff, or Auto partial-off on the Groups page.",
+    });
   }
 
   // Plug load
@@ -287,19 +462,21 @@ export function groupNarrative(project: Project, group: FunctionalGroup): GroupN
     if (waiver) {
       requirementLines.push({
         requirementId: req.id,
-        shortName: req.shortName,
+        shortName: plainLabel(req.id, req.shortName),
         section: req.section,
         description: req.description,
         status: "waived",
+        howMet: howMet(req.id, { status: "waived", waiverReason: waiver.reason }),
         footnoteNumber: waiverFootnote(waiver),
       });
     } else {
       requirementLines.push({
         requirementId: req.id,
-        shortName: req.shortName,
+        shortName: plainLabel(req.id, req.shortName),
         section: req.section,
         description: req.description,
         status: "active",
+        howMet: howMet(req.id, { status: "active" }),
       });
     }
   }
@@ -312,6 +489,7 @@ export function groupNarrative(project: Project, group: FunctionalGroup): GroupN
       section: "Beyond code",
       description: add.description,
       status: "addition",
+      howMet: howMet("", { status: "addition", additionReason: add.reason || add.description }),
       additionNote: add.reason,
     });
   }
@@ -319,7 +497,7 @@ export function groupNarrative(project: Project, group: FunctionalGroup): GroupN
   // Designer-choice summary lines
   const designerLines: string[] = [];
   if (dc.sensorType) {
-    const parts = [dc.sensorType];
+    const parts: string[] = [dc.sensorType];
     if (dc.sensorMounting) parts.push(`${dc.sensorMounting}-mount`);
     designerLines.push(`Sensor: ${parts.join(", ")}`);
   }

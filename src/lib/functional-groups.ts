@@ -164,6 +164,30 @@ export function resolveDaylight(group: {
   };
 }
 
+/**
+ * Does §9.4.1.1(e) sidelighting actually apply to this group? True only when
+ * (1) Table 9.6.1 marks §e REQ for the space type, (2) the group has
+ * windows, AND (3) the sidelit zone exceeds the 150 W threshold.
+ */
+export function sidelightingTriggered(group: FunctionalGroup, spaceType: SpaceType | undefined): boolean {
+  if (!spaceType || spaceType.controls.daylight_sidelighting !== "REQ") return false;
+  const dl = resolveDaylight(group);
+  if (!dl.hasWindows) return false;
+  return !!group.sidelightPowerOver150W;
+}
+
+/**
+ * Does §9.4.1.1(f) toplighting actually apply to this group? Mirrors the
+ * sidelighting gate: REQ in Table 9.6.1, skylights present, and >150 W
+ * in the toplit zone.
+ */
+export function toplightingTriggered(group: FunctionalGroup, spaceType: SpaceType | undefined): boolean {
+  if (!spaceType || spaceType.controls.daylight_toplighting !== "REQ") return false;
+  const dl = resolveDaylight(group);
+  if (!dl.hasSkylights) return false;
+  return !!group.toplightPowerOver150W;
+}
+
 export function hasRoomOverrides(room: Room): boolean {
   const o = room.overrides;
   if (!o) return false;
@@ -225,25 +249,46 @@ export function roomHasFixtures(room: Room): boolean {
 }
 
 /**
- * Plain-text per-room fixture breakdown for the Room Schedule.
- *   "20× LS-A8-4K @ 40 W; 5× RC-6 @ 15 W"
- * When a model tag is blank, falls back to `"20× @ 40 W"`. Returns "" when
- * the room has no usable fixtures (count or wattage missing).
+ * Split a space-type display name into parent category + modifier/subtype.
+ * Names are formatted as `"Parent — Subtype"` in the data (em-dash with
+ * spaces). When no em-dash is present, returns the whole name as `parent`
+ * and an empty modifier.
+ *    "Warehouse — Medium to bulky, palletized items"
+ *    → { parent: "Warehouse", modifier: "Medium to bulky, palletized items" }
  */
-export function formatFixtureBreakdown(room: Room): string {
-  const fixtures = resolveRoomFixtures(room);
-  if (fixtures.length === 0) return "";
-  const parts: string[] = [];
-  for (const f of fixtures) {
+export function splitSpaceTypeName(name: string): { parent: string; modifier: string } {
+  const idx = name.indexOf(" — ");
+  if (idx < 0) return { parent: name, modifier: "" };
+  return { parent: name.slice(0, idx).trim(), modifier: name.slice(idx + 3).trim() };
+}
+
+/**
+ * One plain-text line per usable fixture type in a room. Format per line:
+ *   "20× LS-A8-4K @ 40 W"
+ * When a model tag is blank, falls back to `"20× @ 40 W"`. Filters out
+ * fixtures with count or wattage missing. Used by the Room Schedule to
+ * show the breakdown stacked under the LPD cell.
+ */
+export function fixtureBreakdownLines(room: Room): string[] {
+  const out: string[] = [];
+  for (const f of resolveRoomFixtures(room)) {
     if (f.count <= 0 || f.wattage <= 0) continue;
     const model = f.model.trim();
-    parts.push(
+    out.push(
       model
         ? `${f.count}× ${model} @ ${f.wattage} W`
         : `${f.count}× @ ${f.wattage} W`,
     );
   }
-  return parts.join("; ");
+  return out;
+}
+
+/**
+ * Plain-text per-room fixture breakdown joined on "; " — kept for callers
+ * that want a single-line summary (tooltips, accessibility labels).
+ */
+export function formatFixtureBreakdown(room: Room): string {
+  return fixtureBreakdownLines(room).join("; ");
 }
 
 export interface LpdCheck {

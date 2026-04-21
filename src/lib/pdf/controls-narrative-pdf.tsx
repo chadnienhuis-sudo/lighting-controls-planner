@@ -9,7 +9,9 @@ import {
   StyleSheet,
   pdf,
 } from "@react-pdf/renderer";
-import type { OutdoorZoneType, Project } from "@/lib/types";
+import type { Style } from "@react-pdf/types";
+import type { FunctionalGroup, OutdoorZoneType, Project, Room } from "@/lib/types";
+import { requirementById } from "@/data/requirements";
 import { spaceTypeById } from "@/data/space-types";
 import {
   groupNarrative,
@@ -20,7 +22,10 @@ import {
 import {
   resolveRoomSettings,
   lpdCheckForRoom,
-  formatFixtureBreakdown,
+  lpdCheckForGroup,
+  fixtureBreakdownLines,
+  splitSpaceTypeName,
+  roomsForGroup,
   type LpdCheck,
 } from "@/lib/functional-groups";
 import { BRAND } from "@/lib/brand";
@@ -170,10 +175,10 @@ const styles = StyleSheet.create({
     fontFamily: "Helvetica-Bold",
   },
   tdNum: { width: 22 },
-  tdName: { flex: 1.3 },
-  tdType: { flex: 1.5, color: C.muted },
-  tdSize: { width: 42, textAlign: "right" },
-  tdLpd: { width: 32, textAlign: "right" },
+  tdName: { flex: 1 },
+  tdType: { flex: 1.1, color: C.muted },
+  tdSize: { width: 38, textAlign: "right" },
+  tdLpd: { width: 92 },
   tdInstalled: { width: 46, textAlign: "center" },
   tdGrp: {
     width: 28,
@@ -182,9 +187,19 @@ const styles = StyleSheet.create({
     paddingLeft: 4,
     paddingRight: 4,
   },
-  tdStrategy: { flex: 1 },
-  tdShort: { width: 44 },
-  tdNotes: { flex: 1.5 },
+  tdStrategy: { flex: 0.9 },
+  tdShort: { width: 42 },
+  tdNotes: { flex: 1 },
+  tdLpdAllowance: {
+    fontSize: 8,
+    textAlign: "right",
+  },
+  tdFixtureLine: {
+    fontSize: 6.5,
+    fontFamily: "Helvetica-Oblique",
+    color: C.muted,
+    marginTop: 1,
+  },
   installedPill: {
     paddingTop: 1,
     paddingBottom: 1,
@@ -198,6 +213,68 @@ const styles = StyleSheet.create({
   },
   installedPass: { backgroundColor: "#059669" },
   installedFail: { backgroundColor: C.infrared },
+  // Requirements table — per group, plain-English headline + how-met sentence
+  reqBox: {
+    marginTop: 3,
+    marginBottom: 4,
+    paddingTop: 4,
+    paddingBottom: 4,
+    paddingLeft: 6,
+    paddingRight: 6,
+    borderWidth: 0.5,
+    borderColor: C.light,
+    backgroundColor: C.bgSoft,
+  },
+  reqBoxLabel: {
+    fontSize: 7,
+    letterSpacing: 1.2,
+    textTransform: "uppercase",
+    color: C.muted,
+    fontFamily: "Helvetica-Bold",
+    marginBottom: 3,
+  },
+  reqRow: {
+    flexDirection: "row",
+    paddingTop: 2,
+    paddingBottom: 2,
+    borderTopWidth: 0.25,
+    borderTopColor: C.light,
+  },
+  reqRowFirst: {
+    borderTopWidth: 0,
+  },
+  reqDot: {
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    marginTop: 4,
+    marginRight: 5,
+  },
+  reqHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "baseline",
+  },
+  reqName: {
+    fontSize: 9,
+    fontFamily: "Helvetica-Bold",
+    flex: 1,
+  },
+  reqSection: {
+    fontSize: 7,
+    color: C.muted,
+    marginLeft: 6,
+  },
+  reqHowMet: {
+    fontSize: 8,
+    lineHeight: 1.35,
+    marginTop: 1,
+    color: C.jetLight,
+  },
+  reqHowMetMuted: {
+    color: C.muted,
+    fontFamily: "Helvetica-Oblique",
+  },
   // Footer — two rows: contact (brand) + tagline + tiny disclaimer.
   footer: {
     position: "absolute",
@@ -252,7 +329,13 @@ function formatLocalFilenameStamp(d = new Date()): string {
 // The document
 // ─────────────────────────────────────────────────────────────────────────────
 
-export function ControlsNarrativePdf({ project }: { project: Project }) {
+export function ControlsNarrativePdf({
+  project,
+  requirementsLayout = "expanded",
+}: {
+  project: Project;
+  requirementsLayout?: RequirementsLayout;
+}) {
   const hasOutdoor = Object.values(project.outdoorScope.zones).some((z) => z?.enabled);
   const date = formatDateIso();
   return (
@@ -290,10 +373,10 @@ export function ControlsNarrativePdf({ project }: { project: Project }) {
         <PageFooter />
       </Page>
 
-      {/* §5 Room Schedule */}
-      <Page size="LETTER" style={styles.page} orientation="landscape" wrap>
+      {/* §5 Room Schedule — portrait, group-hoisted list */}
+      <Page size="LETTER" style={styles.page} wrap>
         <Text style={styles.h2}>5. Room Schedule / Sequence of Operation</Text>
-        <RoomScheduleTable project={project} />
+        <RoomScheduleList project={project} requirementsLayout={requirementsLayout} />
         <PageFooter />
       </Page>
 
@@ -533,31 +616,40 @@ function GroupSequence({ project, groupId }: { project: Project; groupId: string
       <View style={styles.twoColumns}>
         <View style={styles.colLeft}>
           <Text style={styles.tinyLabel}>Applicable requirements</Text>
-          {n.requirementLines.map((line) => (
-            <View key={line.requirementId} style={styles.bullet}>
-              <Text style={styles.bulletDot}>•</Text>
-              <Text style={{ flex: 1 }}>
-                <Text
-                  style={
-                    line.status === "waived"
-                      ? [styles.muted, { textDecoration: "line-through" }]
-                      : undefined
-                  }
-                >
-                  {line.shortName}
+          {n.requirementLines.map((line) => {
+            const sectionLabel =
+              line.section.startsWith("9.4") || /^\d/.test(line.section)
+                ? `§${line.section}`
+                : line.section;
+            const nameStyle =
+              line.status === "waived"
+                ? [styles.muted, { textDecoration: "line-through" } as const]
+                : line.status === "na"
+                  ? [styles.muted, { fontFamily: "Helvetica-Oblique" } as const]
+                  : line.status === "addition"
+                    ? [{ color: C.infrared } as const]
+                    : undefined;
+            return (
+              <View key={line.requirementId} style={styles.bullet}>
+                <Text style={styles.bulletDot}>{line.status === "na" ? "○" : "•"}</Text>
+                <Text style={{ flex: 1 }}>
+                  <Text style={nameStyle}>{line.shortName}</Text>
+                  <Text style={styles.muted}> {sectionLabel}</Text>
+                  {line.footnoteNumber !== undefined ? (
+                    <Text style={styles.footnoteMark}>
+                      {" "}[{line.footnoteNumber}]
+                    </Text>
+                  ) : null}
+                  {line.status === "addition" ? (
+                    <Text style={{ color: C.infrared }}> (beyond code)</Text>
+                  ) : null}
+                  {line.status === "na" ? (
+                    <Text style={styles.muted}> — N/A</Text>
+                  ) : null}
                 </Text>
-                <Text style={styles.muted}> §{line.section}</Text>
-                {line.footnoteNumber !== undefined ? (
-                  <Text style={styles.footnoteMark}>
-                    {" "}[{line.footnoteNumber}]
-                  </Text>
-                ) : null}
-                {line.status === "addition" ? (
-                  <Text style={{ color: C.infrared }}> (beyond code)</Text>
-                ) : null}
-              </Text>
-            </View>
-          ))}
+              </View>
+            );
+          })}
         </View>
 
         <View style={styles.colRight}>
@@ -616,130 +708,694 @@ function GroupSequence({ project, groupId }: { project: Project; groupId: string
   );
 }
 
-function RoomScheduleTable({ project }: { project: Project }) {
+function RoomScheduleList({
+  project,
+  requirementsLayout = "expanded",
+}: {
+  project: Project;
+  requirementsLayout?: RequirementsLayout;
+}) {
   if (project.rooms.length === 0) {
-    return (
-      <Text style={[styles.prose, styles.muted]}>No rooms yet.</Text>
-    );
+    return <Text style={[styles.prose, styles.muted]}>No rooms yet.</Text>;
   }
-  const groupsById = new Map(
-    project.functionalGroups.map((g) => [g.id, g]),
+  const ungrouped = project.rooms.filter((r) => !r.functionalGroupId);
+  return (
+    <View>
+      {project.functionalGroups.map((g) => (
+        <GroupBlockPdf
+          key={g.id}
+          group={g}
+          project={project}
+          layout={requirementsLayout}
+        />
+      ))}
+      {ungrouped.length > 0 && (
+        <View style={{ marginTop: 8 }}>
+          <Text style={styles.tinyLabel}>Ungrouped rooms</Text>
+          {ungrouped.map((room) => (
+            <RoomLinePdf key={room.id} room={room} group={undefined} />
+          ))}
+        </View>
+      )}
+    </View>
   );
+}
 
-  const rows = project.rooms.map((room) => {
-    const group = room.functionalGroupId ? groupsById.get(room.functionalGroupId) : undefined;
-    const st = spaceTypeById(room.spaceTypeId);
-    const resolved = group ? resolveRoomSettings(room, group) : null;
-
-    const occupancy = (() => {
-      if (!resolved) return "—";
-      if (resolved.waivers.some((w) => w.requirementId === "add1_set")) return "AHJ override";
-      if (resolved.add1Selection) return shortLabel(resolved.add1Selection);
-      const hasAdd1 = st
-        ? Object.values(st.controls).some((v) => v === "ADD1")
-        : false;
-      return hasAdd1 ? "(unassigned)" : "Auto-on OK";
-    })();
-
-    const shutoff = (() => {
-      if (!resolved) return "—";
-      if (resolved.waivers.some((w) => w.requirementId === "add2_set")) return "AHJ override";
-      if (resolved.add2Selections.length > 0) {
-        return resolved.add2Selections
-          .map(shortLabel)
-          .join(resolved.add2Stacked ? " + " : " / ");
-      }
-      const reqShutoffs = st
-        ? (["auto_full_off", "scheduled_shutoff", "auto_partial_off"] as const).filter(
-            (c) => st.controls[c] === "REQ",
-          )
-        : [];
-      return reqShutoffs.length > 0 ? reqShutoffs.map(shortLabel).join(" + ") : "—";
-    })();
-
-    const plug = st?.plugLoadControl842
-      ? resolved?.waivers.some((w) => w.requirementId === "plug_load_842")
-        ? "Waived"
-        : "§8.4.2"
-      : "—";
-
-    return {
-      room,
-      spaceTypeName: st?.name ?? room.spaceTypeId,
-      lpd: st?.lpdWattsPerSqft ?? 0,
-      installedLpd: lpdCheckForRoom(room, st?.lpdWattsPerSqft ?? 0),
-      fixtureBreakdown: formatFixtureBreakdown(room),
-      groupLabel: group?.label ?? "—",
-      occupancy,
-      shutoff,
-      daylight: resolved ? (resolved.daylightZone ? "Yes" : "No") : "—",
-      plug,
-      note: room.overrides?.roomNote ?? (resolved?.hasOverrides ? "per-room override" : ""),
-    };
-  });
-
-  const totalSqft = project.rooms.reduce((s, r) => s + (r.sizeSqft || 0), 0);
-  const totalW = project.rooms.reduce(
-    (s, r) => s + (r.sizeSqft || 0) * (spaceTypeById(r.spaceTypeId)?.lpdWattsPerSqft ?? 0),
-    0,
-  );
-  const avgLpd = totalSqft > 0 ? totalW / totalSqft : 0;
+function GroupBlockPdf({
+  group,
+  project,
+  layout = "expanded",
+}: {
+  group: FunctionalGroup;
+  project: Project;
+  layout?: RequirementsLayout;
+}) {
+  const rooms = roomsForGroup(project, group);
+  const st = spaceTypeById(group.spaceTypeId);
+  const { parent, modifier } = st
+    ? splitSpaceTypeName(st.name)
+    : { parent: group.description || "—", modifier: "" };
+  const totalSf = rooms.reduce((s, r) => s + (r.sizeSqft || 0), 0);
+  const groupLpd = st ? lpdCheckForGroup(rooms, st.lpdWattsPerSqft) : null;
+  const narrative = groupNarrative(project, group);
 
   return (
-    <View style={styles.table}>
-      <View style={styles.trHead}>
-        <Text style={styles.tdNum}>#</Text>
-        <Text style={styles.tdName}>Name</Text>
-        <Text style={styles.tdType}>Space type</Text>
-        <Text style={styles.tdSize}>Size (sf)</Text>
-        <Text style={styles.tdLpd}>LPD</Text>
-        <Text style={styles.tdInstalled}>Installed</Text>
-        <Text style={styles.tdGrp}>Grp</Text>
-        <Text style={styles.tdStrategy}>Occupancy</Text>
-        <Text style={styles.tdStrategy}>Shutoff</Text>
-        <Text style={styles.tdShort}>Daylight</Text>
-        <Text style={styles.tdShort}>Plug load</Text>
-        <Text style={styles.tdNotes}>Notes</Text>
+    <View style={styles.groupBlock} wrap={false}>
+      <View style={styles.groupHeader}>
+        <Text style={styles.groupTag}>{group.label}</Text>
+        <Text style={styles.groupTitle}>
+          {parent}
+          {modifier ? (
+            <Text style={{ fontFamily: "Helvetica-Oblique", fontSize: 9, color: C.muted }}>
+              {"  "}
+              {modifier}
+            </Text>
+          ) : null}
+        </Text>
+        <Text style={styles.groupMeta}>
+          {rooms.length} room{rooms.length === 1 ? "" : "s"} ·{" "}
+          {totalSf.toLocaleString()} sf
+          {st ? ` · LPD allow ${st.lpdWattsPerSqft.toFixed(2)}` : ""}
+        </Text>
       </View>
-      {rows.map((r) => (
-        <View key={r.room.id} style={styles.tr} wrap={false}>
-          <Text style={styles.tdNum}>{r.room.number || "—"}</Text>
-          <Text style={styles.tdName}>{r.room.name || "(unnamed)"}</Text>
-          <Text style={styles.tdType}>{r.spaceTypeName}</Text>
-          <Text style={styles.tdSize}>{r.room.sizeSqft.toLocaleString()}</Text>
-          <Text style={styles.tdLpd}>{r.lpd.toFixed(2)}</Text>
-          <View style={styles.tdInstalled}>
-            <InstalledLpdPdf check={r.installedLpd} />
-          </View>
-          <Text style={styles.tdGrp}>{r.groupLabel}</Text>
-          <Text style={styles.tdStrategy}>{r.occupancy}</Text>
-          <Text style={styles.tdStrategy}>{r.shutoff}</Text>
-          <Text style={styles.tdShort}>{r.daylight}</Text>
-          <Text style={styles.tdShort}>{r.plug}</Text>
-          <View style={styles.tdNotes}>
-            {r.fixtureBreakdown ? (
-              <Text style={{ fontSize: 7, color: C.muted }}>
-                {r.fixtureBreakdown}
-              </Text>
-            ) : null}
-            {r.note ? <Text>{r.note}</Text> : null}
-          </View>
+
+      {groupLpd && groupLpd.status !== "unknown" && (
+        <View
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            fontSize: 9,
+            marginTop: 2,
+            marginBottom: 2,
+          }}
+        >
+          <Text style={{ color: C.muted, marginRight: 4 }}>Installed lighting power</Text>
+          <InstalledLpdPdf check={groupLpd} />
+          <Text style={{ marginLeft: 4, color: C.muted }}>group rollup</Text>
         </View>
-      ))}
-      <View style={styles.trTotals}>
-        <Text style={styles.tdNum}></Text>
-        <Text style={styles.tdName}>Totals</Text>
-        <Text style={styles.tdType}></Text>
-        <Text style={styles.tdSize}>{totalSqft.toLocaleString()}</Text>
-        <Text style={styles.tdLpd}>{avgLpd.toFixed(2)}</Text>
-        <Text style={styles.tdInstalled}></Text>
-        <Text style={styles.tdGrp}></Text>
-        <Text style={[styles.tdStrategy, styles.muted]}>allowance avg W/ft²</Text>
-        <Text style={styles.tdStrategy}></Text>
-        <Text style={styles.tdShort}></Text>
-        <Text style={styles.tdShort}></Text>
-        <Text style={styles.tdNotes}></Text>
+      )}
+
+      {narrative.requirementLines.length > 0 && (
+        <RequirementsPdfRender narrative={narrative} layout={layout} />
+      )}
+
+      <View>
+        {rooms.map((room) => (
+          <RoomLinePdf key={room.id} room={room} group={group} />
+        ))}
       </View>
+    </View>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PDF requirements layout variants — mirror the on-screen variants in
+// document-section.tsx. Same data (narrative.requirementLines + sequenceParagraph),
+// different density/structure tradeoffs. Picked from the Section 5 layout tab.
+// ─────────────────────────────────────────────────────────────────────────────
+
+type ReqLine = ReturnType<typeof groupNarrative>["requirementLines"][number];
+
+function shortSectionPdf(section: string): string {
+  const m = section.match(/^9\.4\.1\.1\(([a-i])\)(?:\/\(([a-i])\))?(?:\/\(([a-i])\))?$/);
+  if (m) {
+    const letters = [m[1], m[2], m[3]].filter(Boolean).join("/");
+    return `§${letters}`;
+  }
+  if (section === "Beyond code") return "";
+  return /^\d/.test(section) ? `§${section}` : section;
+}
+
+function naReasonShortPdf(howMet: string): string {
+  const lower = howMet.toLowerCase();
+  if (lower.includes("no windows")) return "no windows";
+  if (lower.includes("no skylights")) return "no skylights";
+  if (lower.includes("below the 150 w") || lower.includes("150 w threshold")) {
+    return "below 150 W threshold";
+  }
+  if (lower.includes("not yet selected")) return "not yet selected";
+  return howMet.length > 60 ? howMet.slice(0, 57) + "…" : howMet;
+}
+
+type SooCategoryPdf = "turnOn" | "turnOff" | "daylight" | "plugLoad" | "addition";
+function sooCategoryPdf(reqId: string, status: ReqLine["status"]): SooCategoryPdf {
+  if (status === "addition") return "addition";
+  if (reqId.startsWith("daylight_")) return "daylight";
+  if (reqId === "plug_load_842") return "plugLoad";
+  if (
+    reqId === "auto_full_off" ||
+    reqId === "auto_partial_off" ||
+    reqId === "scheduled_shutoff" ||
+    reqId === "add2_set"
+  ) {
+    return "turnOff";
+  }
+  return "turnOn";
+}
+
+function RequirementsPdfRender({
+  narrative,
+  layout,
+}: {
+  narrative: ReturnType<typeof groupNarrative>;
+  layout: RequirementsLayout;
+}) {
+  const rows = narrative.requirementLines;
+  switch (layout) {
+    case "compact":
+      return <RequirementsCompactPdf rows={rows} />;
+    case "soo":
+      return <RequirementsSoOPdf rows={rows} />;
+    case "pills":
+      return <RequirementsPillsPdf rows={rows} narrative={narrative} />;
+    case "hybrid":
+      return <RequirementsHybridPdf rows={rows} />;
+    case "expanded":
+    default:
+      return (
+        <View style={styles.reqBox}>
+          <Text style={styles.reqBoxLabel}>
+            Code requirements & how this group meets each
+          </Text>
+          {rows.map((line, i) => (
+            <RequirementRowPdf key={line.requirementId} line={line} first={i === 0} />
+          ))}
+        </View>
+      );
+  }
+}
+
+/** Compact PDF — one-line rows + N/A consolidated footer. */
+function RequirementsCompactPdf({ rows }: { rows: ReqLine[] }) {
+  const active = rows.filter((r) => r.status !== "na");
+  const naRows = rows.filter((r) => r.status === "na");
+  return (
+    <View style={styles.reqBox}>
+      <Text style={styles.reqBoxLabel}>Code requirements</Text>
+      {active.map((line) => (
+        <CompactRowPdf key={line.requirementId} line={line} />
+      ))}
+      {naRows.length > 0 && (
+        <View
+          style={{
+            marginTop: 3,
+            paddingTop: 3,
+            borderTopWidth: 0.25,
+            borderTopColor: C.light,
+          }}
+        >
+          <Text style={{ fontSize: 7, color: C.muted }}>
+            <Text style={{ fontFamily: "Helvetica-Bold" }}>Not applicable here: </Text>
+            {naRows
+              .map(
+                (r) =>
+                  `${r.shortName} (${shortSectionPdf(r.section)} — ${naReasonShortPdf(r.howMet)})`,
+              )
+              .join(" · ")}
+          </Text>
+        </View>
+      )}
+    </View>
+  );
+}
+
+function CompactRowPdf({ line }: { line: ReqLine }) {
+  const dotColor =
+    line.status === "active"
+      ? C.jet
+      : line.status === "waived"
+        ? C.spark
+        : line.status === "addition"
+          ? C.infrared
+          : "#FFFFFF";
+  const dotStyle: Style =
+    line.status === "na"
+      ? {
+          width: 3,
+          height: 3,
+          borderRadius: 2,
+          marginTop: 4,
+          marginRight: 4,
+          backgroundColor: dotColor,
+          borderWidth: 0.5,
+          borderColor: C.muted,
+        }
+      : {
+          width: 3,
+          height: 3,
+          borderRadius: 2,
+          marginTop: 4,
+          marginRight: 4,
+          backgroundColor: dotColor,
+        };
+  let nameStyle: Style = { fontSize: 8, fontFamily: "Helvetica-Bold" };
+  if (line.status === "waived") {
+    nameStyle = { ...nameStyle, textDecoration: "line-through", color: C.muted };
+  } else if (line.status === "addition") {
+    nameStyle = { ...nameStyle, color: C.infrared };
+  }
+  return (
+    <View
+      style={{
+        flexDirection: "row",
+        alignItems: "baseline",
+        paddingTop: 1.5,
+        paddingBottom: 1.5,
+      }}
+    >
+      <View style={dotStyle} />
+      <Text style={nameStyle}>
+        {line.shortName}
+        {line.footnoteNumber !== undefined ? (
+          <Text style={styles.footnoteMark}> [{line.footnoteNumber}]</Text>
+        ) : null}
+      </Text>
+      <Text style={{ fontSize: 8, color: C.jetLight, flex: 1, marginLeft: 6 }}>
+        {line.howMet}
+      </Text>
+      <Text style={{ fontSize: 7, color: C.muted, marginLeft: 4 }}>
+        {shortSectionPdf(line.section)}
+      </Text>
+    </View>
+  );
+}
+
+/** Sequence of Operation PDF — two columns: turn-on / turn-off, then daylight + plug-load row. */
+function RequirementsSoOPdf({ rows }: { rows: ReqLine[] }) {
+  const buckets: Record<SooCategoryPdf, ReqLine[]> = {
+    turnOn: [],
+    turnOff: [],
+    daylight: [],
+    plugLoad: [],
+    addition: [],
+  };
+  for (const r of rows) buckets[sooCategoryPdf(r.requirementId, r.status)].push(r);
+  return (
+    <View style={styles.reqBox}>
+      <View style={{ flexDirection: "row", gap: 10 }}>
+        <View style={{ flex: 1 }}>
+          <SooColumnPdf label="How lights turn on" rows={buckets.turnOn} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <SooColumnPdf label="How lights turn off" rows={buckets.turnOff} />
+        </View>
+      </View>
+      {(buckets.daylight.length > 0 ||
+        buckets.plugLoad.length > 0 ||
+        buckets.addition.length > 0) && (
+        <View
+          style={{
+            flexDirection: "row",
+            gap: 10,
+            marginTop: 3,
+            paddingTop: 3,
+            borderTopWidth: 0.25,
+            borderTopColor: C.light,
+          }}
+        >
+          {buckets.daylight.length > 0 && (
+            <View style={{ flex: 1 }}>
+              <SooColumnPdf label="Daylight" rows={buckets.daylight} />
+            </View>
+          )}
+          {buckets.plugLoad.length > 0 && (
+            <View style={{ flex: 1 }}>
+              <SooColumnPdf label="Plug load" rows={buckets.plugLoad} />
+            </View>
+          )}
+          {buckets.addition.length > 0 && (
+            <View style={{ flex: 1 }}>
+              <SooColumnPdf label="Beyond code" rows={buckets.addition} />
+            </View>
+          )}
+        </View>
+      )}
+    </View>
+  );
+}
+
+function SooColumnPdf({ label, rows }: { label: string; rows: ReqLine[] }) {
+  if (rows.length === 0) return null;
+  return (
+    <View>
+      <Text style={{ ...styles.reqBoxLabel, marginBottom: 1 }}>{label}</Text>
+      {rows.map((line) => {
+        const dotColor =
+          line.status === "active"
+            ? C.jet
+            : line.status === "waived"
+              ? C.spark
+              : line.status === "addition"
+                ? C.infrared
+                : "#FFFFFF";
+        const dotStyle: Style =
+          line.status === "na"
+            ? {
+                width: 3,
+                height: 3,
+                borderRadius: 2,
+                marginTop: 4,
+                marginRight: 4,
+                backgroundColor: dotColor,
+                borderWidth: 0.5,
+                borderColor: C.muted,
+              }
+            : {
+                width: 3,
+                height: 3,
+                borderRadius: 2,
+                marginTop: 4,
+                marginRight: 4,
+                backgroundColor: dotColor,
+              };
+        let nameStyle: Style = { fontSize: 8, fontFamily: "Helvetica-Bold" };
+        if (line.status === "waived") {
+          nameStyle = { ...nameStyle, textDecoration: "line-through", color: C.muted };
+        } else if (line.status === "na") {
+          nameStyle = { ...nameStyle, color: C.muted, fontFamily: "Helvetica-Oblique" };
+        } else if (line.status === "addition") {
+          nameStyle = { ...nameStyle, color: C.infrared };
+        }
+        return (
+          <View
+            key={line.requirementId}
+            style={{ flexDirection: "row", paddingTop: 1, paddingBottom: 1 }}
+          >
+            <View style={dotStyle} />
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontSize: 8 }}>
+                <Text style={nameStyle}>{line.shortName}</Text>
+                {line.status === "na" ? (
+                  <Text style={{ color: C.muted }}>
+                    {" — "}
+                    {naReasonShortPdf(line.howMet)}
+                  </Text>
+                ) : (
+                  <Text style={{ color: C.jetLight }}>
+                    {" — "}
+                    {line.howMet}
+                  </Text>
+                )}
+              </Text>
+            </View>
+            <Text style={{ fontSize: 7, color: C.muted, marginLeft: 4 }}>
+              {shortSectionPdf(line.section)}
+            </Text>
+          </View>
+        );
+      })}
+    </View>
+  );
+}
+
+/** Pills + narrative PDF — chip-style headlines + plain-English paragraph. */
+function RequirementsPillsPdf({
+  rows,
+  narrative,
+}: {
+  rows: ReqLine[];
+  narrative: ReturnType<typeof groupNarrative>;
+}) {
+  const active = rows.filter((r) => r.status === "active" || r.status === "addition");
+  const waived = rows.filter((r) => r.status === "waived");
+  const naRows = rows.filter((r) => r.status === "na");
+  return (
+    <View style={styles.reqBox}>
+      <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "baseline" }}>
+        <Text style={{ ...styles.reqBoxLabel, marginRight: 4, marginBottom: 0 }}>Active</Text>
+        {[...active, ...waived].map((line) => {
+          const isWaived = line.status === "waived";
+          const isAddition = line.status === "addition";
+          const borderColor = isWaived
+            ? C.spark
+            : isAddition
+              ? C.infrared
+              : C.jet;
+          const textColor = isWaived ? C.spark : isAddition ? C.infrared : C.jet;
+          return (
+            <View
+              key={line.requirementId}
+              style={{
+                flexDirection: "row",
+                alignItems: "baseline",
+                borderWidth: 0.5,
+                borderColor,
+                paddingLeft: 3,
+                paddingRight: 3,
+                paddingTop: 0,
+                paddingBottom: 0,
+                marginRight: 3,
+                marginTop: 1,
+                marginBottom: 1,
+                borderRadius: 2,
+              }}
+            >
+              <Text
+                style={{
+                  fontSize: 7,
+                  color: textColor,
+                  textDecoration: isWaived ? "line-through" : "none",
+                }}
+              >
+                {line.shortName}
+              </Text>
+              <Text style={{ fontSize: 6.5, color: C.muted, marginLeft: 2 }}>
+                {shortSectionPdf(line.section)}
+              </Text>
+              {line.footnoteNumber !== undefined ? (
+                <Text style={{ ...styles.footnoteMark, fontSize: 6.5, marginLeft: 1 }}>
+                  [{line.footnoteNumber}]
+                </Text>
+              ) : null}
+            </View>
+          );
+        })}
+      </View>
+      {naRows.length > 0 && (
+        <Text style={{ fontSize: 7, color: C.muted, marginTop: 3 }}>
+          <Text style={{ fontFamily: "Helvetica-Bold" }}>Not req&rsquo;d </Text>
+          {naRows
+            .map(
+              (r) =>
+                `${r.shortName} (${shortSectionPdf(r.section)} — ${naReasonShortPdf(r.howMet)})`,
+            )
+            .join(" · ")}
+        </Text>
+      )}
+      <Text style={{ fontSize: 8, color: C.jetLight, lineHeight: 1.4, marginTop: 3 }}>
+        {narrative.sequenceParagraph}
+      </Text>
+    </View>
+  );
+}
+
+/** Hybrid PDF — expanded actives + N/A consolidated footer. */
+function RequirementsHybridPdf({ rows }: { rows: ReqLine[] }) {
+  const active = rows.filter((r) => r.status !== "na");
+  const naRows = rows.filter((r) => r.status === "na");
+  return (
+    <View style={styles.reqBox}>
+      <Text style={styles.reqBoxLabel}>Code requirements & how this group meets each</Text>
+      {active.map((line, i) => (
+        <RequirementRowPdf key={line.requirementId} line={line} first={i === 0} />
+      ))}
+      {naRows.length > 0 && (
+        <View
+          style={{
+            marginTop: 3,
+            paddingTop: 3,
+            borderTopWidth: 0.25,
+            borderTopColor: C.light,
+          }}
+        >
+          <Text style={{ fontSize: 7, color: C.muted }}>
+            <Text style={{ fontFamily: "Helvetica-Bold" }}>Not applicable here: </Text>
+            {naRows
+              .map(
+                (r) =>
+                  `${r.shortName} (${shortSectionPdf(r.section)} — ${naReasonShortPdf(r.howMet)})`,
+              )
+              .join(" · ")}
+          </Text>
+        </View>
+      )}
+    </View>
+  );
+}
+
+/**
+ * One row of the per-group requirements table in the PDF — plain-English
+ * shortName + how-met sentence; section reference muted on the right edge;
+ * status drives the bullet color and text styling. N/A daylight rows render
+ * with a hollow muted dot + italic text so reviewers see we considered the
+ * rule and *why* it doesn't apply.
+ */
+function RequirementRowPdf({
+  line,
+  first,
+}: {
+  line: {
+    requirementId: string;
+    shortName: string;
+    section: string;
+    howMet: string;
+    status: "active" | "waived" | "addition" | "na";
+    footnoteNumber?: number;
+  };
+  first: boolean;
+}) {
+  const dotColor =
+    line.status === "active"
+      ? C.jet
+      : line.status === "waived"
+        ? C.spark
+        : line.status === "addition"
+          ? C.infrared
+          : "#FFFFFF"; // hollow look for N/A
+  const dotStyle =
+    line.status === "na"
+      ? { ...styles.reqDot, backgroundColor: dotColor, borderWidth: 0.5, borderColor: C.muted }
+      : { ...styles.reqDot, backgroundColor: dotColor };
+  const sectionLabel =
+    line.section.startsWith("9.4") || /^\d/.test(line.section)
+      ? `§${line.section}`
+      : line.section;
+  const isMuted = line.status === "na" || line.status === "waived";
+
+  // Build name style by composing into a single object — react-pdf's Style
+  // arrays don't accept null/undefined entries, so we merge inline.
+  let nameStyle: Style = { ...styles.reqName };
+  if (line.status === "waived") {
+    nameStyle = { ...nameStyle, textDecoration: "line-through", color: C.muted };
+  } else if (line.status === "na") {
+    nameStyle = { ...nameStyle, color: C.muted, fontFamily: "Helvetica-Oblique" };
+  } else if (line.status === "addition") {
+    nameStyle = { ...nameStyle, color: C.infrared };
+  }
+
+  const rowStyle: Style = first
+    ? { ...styles.reqRow, ...styles.reqRowFirst }
+    : styles.reqRow;
+  const howMetStyle: Style = isMuted
+    ? { ...styles.reqHowMet, ...styles.reqHowMetMuted }
+    : styles.reqHowMet;
+
+  return (
+    <View style={rowStyle}>
+      <View style={dotStyle} />
+      <View style={{ flex: 1 }}>
+        <View style={styles.reqHeader}>
+          <Text style={nameStyle}>
+            {line.shortName}
+            {line.footnoteNumber !== undefined ? (
+              <Text style={styles.footnoteMark}> [{line.footnoteNumber}]</Text>
+            ) : null}
+            {line.status === "na" ? (
+              <Text style={{ color: C.muted, fontFamily: "Helvetica" }}> — Not applicable</Text>
+            ) : null}
+            {line.status === "addition" ? (
+              <Text style={{ color: C.infrared, fontFamily: "Helvetica" }}> (beyond code)</Text>
+            ) : null}
+          </Text>
+          <Text style={styles.reqSection}>{sectionLabel}</Text>
+        </View>
+        <Text style={howMetStyle}>{line.howMet}</Text>
+      </View>
+    </View>
+  );
+}
+
+function RoomLinePdf({
+  room,
+  group,
+}: {
+  room: Room;
+  group: FunctionalGroup | undefined;
+}) {
+  const st = spaceTypeById(room.spaceTypeId);
+  const resolved = group ? resolveRoomSettings(room, group) : null;
+  const installed = lpdCheckForRoom(room, st?.lpdWattsPerSqft ?? 0);
+  const fixtures = fixtureBreakdownLines(room);
+
+  const overrideParts: string[] = [];
+  if (room.overrides?.add1Selection !== undefined) {
+    const lbl = room.overrides.add1Selection
+      ? shortLabel(room.overrides.add1Selection)
+      : "none";
+    overrideParts.push(`occupancy → ${lbl}`);
+  }
+  if (room.overrides?.add2Selections !== undefined) {
+    const lbl =
+      room.overrides.add2Selections.length > 0
+        ? room.overrides.add2Selections.map(shortLabel).join(" + ")
+        : "none";
+    overrideParts.push(`shutoff → ${lbl}`);
+  }
+  if (room.overrides?.daylightZone !== undefined) {
+    overrideParts.push(`daylight → ${room.overrides.daylightZone ? "Y" : "N"}`);
+  }
+  if (resolved) {
+    for (const w of resolved.waivers) {
+      if (w.scope !== "room") continue;
+      const req = requirementById(w.requirementId);
+      overrideParts.push(`waive ${req?.shortName ?? w.requirementId}`);
+    }
+  }
+  if (room.overrides?.roomNote?.trim()) {
+    overrideParts.push(room.overrides.roomNote.trim());
+  }
+
+  return (
+    <View
+      wrap={false}
+      style={{
+        paddingLeft: 6,
+        borderLeftWidth: 1,
+        borderLeftColor: C.light,
+        marginBottom: 3,
+      }}
+    >
+      <View style={{ flexDirection: "row", alignItems: "center", fontSize: 9 }}>
+        <Text style={{ width: 32, color: C.muted, fontFamily: "Helvetica" }}>
+          {room.number || "—"}
+        </Text>
+        <Text style={{ fontFamily: "Helvetica-Bold" }}>
+          {room.name || "(unnamed)"}
+        </Text>
+        <Text style={{ color: C.muted, marginLeft: 4 }}>
+          · {room.sizeSqft.toLocaleString()} sf
+        </Text>
+        <View style={{ marginLeft: 6 }}>
+          <InstalledLpdPdf check={installed} />
+        </View>
+      </View>
+      {fixtures.map((line, i) => (
+        <Text
+          key={i}
+          style={{
+            fontSize: 7,
+            fontFamily: "Helvetica-Oblique",
+            color: C.muted,
+            marginLeft: 32,
+            marginTop: 0.5,
+          }}
+        >
+          {line}
+        </Text>
+      ))}
+      {overrideParts.length > 0 && (
+        <Text
+          style={{
+            fontSize: 7,
+            color: C.spark,
+            marginLeft: 32,
+            marginTop: 0.5,
+          }}
+        >
+          <Text style={{ color: C.muted }}>▸ Override: </Text>
+          {overrideParts.join(" · ")}
+        </Text>
+      )}
     </View>
   );
 }
@@ -847,8 +1503,25 @@ function PageFooter() {
 // Download trigger
 // ─────────────────────────────────────────────────────────────────────────────
 
-export async function downloadControlsNarrativePdf(project: Project) {
-  const blob = await pdf(<ControlsNarrativePdf project={project} />).toBlob();
+/**
+ * Section 5 layout — mirrors the on-screen tabs in DocumentSection so a
+ * downloaded PDF reflects whichever variant is currently being previewed.
+ * Defaults to "expanded" for back-compat with any caller not passing options.
+ */
+export type RequirementsLayout = "expanded" | "compact" | "soo" | "pills" | "hybrid";
+
+export interface DownloadOptions {
+  requirementsLayout?: RequirementsLayout;
+}
+
+export async function downloadControlsNarrativePdf(
+  project: Project,
+  options: DownloadOptions = {},
+) {
+  const layout = options.requirementsLayout ?? "expanded";
+  const blob = await pdf(
+    <ControlsNarrativePdf project={project} requirementsLayout={layout} />,
+  ).toBlob();
   const safeName =
     project.name
       .trim()
@@ -856,7 +1529,10 @@ export async function downloadControlsNarrativePdf(project: Project) {
       .replace(/^-|-$/g, "")
       .toLowerCase() || "project";
   const stamp = formatLocalFilenameStamp();
-  const filename = `${safeName}-controls-narrative-${stamp}.pdf`;
+  // Tag filename with layout when not the default, so multiple downloads
+  // for comparison are easy to tell apart on disk.
+  const layoutSuffix = layout === "expanded" ? "" : `-${layout}`;
+  const filename = `${safeName}-controls-narrative-${stamp}${layoutSuffix}.pdf`;
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
