@@ -244,11 +244,11 @@ Anonymous users (no account) continue to use localStorage-only. It becomes the "
 
 Each slice is a shippable step:
 
-1. **Auth + users table only.** Add sign in / sign up UI. Nothing else changes — app still uses localStorage. User's email shows in the nav bar. De-risks auth integration before any data moves.
-2. **Projects table + migration prompt.** Signed-in users get their project saved to the cloud on first edit. Anonymous users unchanged. All signed-in users (free or A+) get unlimited projects — the gate is at features, not capacity.
-3. **Rooms + groups tables.** Full project structure in the DB. Client becomes a thin editor over the DB state. Zustand store still exists but hydrates from the DB instead of localStorage.
+1. **[SHIPPED 2026-04-23]** **Auth + users table only.** Magic-link sign-in UI at `/sign-in` + `/auth/callback`; auto-provisioning trigger populates `public.users` on signup. ([PR #3](https://github.com/chadnienhuis-sudo/lighting-controls-planner/pull/3))
+2. **[SHIPPED 2026-04-23]** **Projects table + silent cloud sync.** Signed-in users' projects debounce-save to the DB; `/planner` shows a per-user list; `rooms` + `functional_groups` ride in transitional `*_json` columns until step 3. Deviation from original plan: no "save to your account?" modal — sync happens silently. ([PR #4](https://github.com/chadnienhuis-sudo/lighting-controls-planner/pull/4))
+3. **Rooms + groups tables.** Full project structure in the DB. Client becomes a thin editor over the DB state. Zustand store still exists but hydrates from the DB instead of localStorage. Step 3's migration also reads and drops `projects.rooms_json` / `projects.functional_groups_json`.
 4. **Sharing.** Share-link generation, shared-with-me list, access-level enforcement.
-5. **Premium features.** White-label PDF, multiple saved projects, customer-scoped defaults. Invite-code redemption UI. A+ staff admin UI for granting tiers.
+5. **Premium features.** White-label PDF, customer-scoped defaults. Invite-code redemption UI. A+ staff admin UI for granting tiers.
 6. **Everything else over time.** Stripe integration (if going paid), team accounts, audit history, comments, version snapshots, etc.
 
 Each step is independently testable and independently rollback-able.
