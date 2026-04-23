@@ -1,6 +1,6 @@
 # Backend Migration Plan — Moving from localStorage to Supabase
 
-**Status:** Planning draft — 2026-04-21. Companion to `mvp-spec.md` (premium-tier plan) and `narrative-content-plan.md` / `phase-1-data-model-sketch.md` (expanding data model). No code changes yet.
+**Status:** Planning draft — 2026-04-21. Companion to `mvp-spec.md` (premium-tier plan) and `narrative-content-plan.md` / `phase-1-data-model-sketch.md` (expanding data model). No code changes yet. §11 decisions resolved 2026-04-21.
 
 ---
 
@@ -201,24 +201,26 @@ The pattern repeats for `rooms` and `functional_groups` (access follows the proj
 
 **Free vs. premium enforcement** lives in application code backed by the user's tier. RLS protects data ownership; it doesn't gate features.
 
-## 7. Premium tier gating
+## 7. Tier gating (strategic direction: free is generous, premium is relational)
 
-What's "free" vs. "a_plus_customer" in the data model:
+A+ makes money selling lighting and winning design/build jobs. Subscription revenue from small contractors is low-margin, high-support, and competes with manufacturer-free tools already in the market. The tool's strategic job is **lead generation, brand authority, and market intelligence for A+** — not software revenue. So free gets nearly everything; A+ customer tier unlocks relational / business-utility perks.
 
-| Feature | Free | A+ customer | A+ staff |
+| Feature | Free (any signup) | A+ customer | A+ staff |
 |---|---|---|---|
-| Create / edit 1 project in the browser | ✓ | ✓ | ✓ |
-| Projects saved to the cloud | — (localStorage only) | ✓ | ✓ |
-| Multiple saved projects | — (1 at a time) | unlimited | unlimited |
-| Branded PDF export (A+ footer) | ✓ (default) | ✓ | ✓ |
-| Unbranded / white-label PDF | — | ✓ | ✓ |
-| Share via link | — | ✓ | ✓ |
-| Custom default settings per user/company | — | ✓ | ✓ |
-| Premium space-type library (future manufacturer product mapping) | — | ✓ | ✓ |
+| Sign in, profile, cross-device sync | ✓ | ✓ | ✓ |
+| Unlimited cloud-saved projects | ✓ | ✓ | ✓ |
+| Full narrative + drawing-schedule exports (A+ branded) | ✓ | ✓ | ✓ |
+| Share project via read-only link | ✓ | ✓ | ✓ |
+| Share with edit access (multi-user collab) | — | ✓ | ✓ |
+| Unbranded / white-label PDF exports | — | ✓ | ✓ |
+| Saved project templates (reusable bid types, national accounts) | — | ✓ | ✓ |
+| Per-company default overrides on top of A+ central library | — | ✓ | ✓ |
+| Market-intel aggregate dashboard (space types, manufacturers, sizes across all users) | — | — | ✓ |
+| Curate / edit the central defaults library | — | — | ✓ |
 | Grant customer tier to other users | — | — | ✓ |
-| View any project | — | — | ✓ (support) |
+| View any project (support access) | — | — | ✓ |
 
-Default-tier users can still *use* the app fully — they just don't get cloud sync or sharing.
+Branded output travels with free users' exports on purpose — it's the lead-gen mechanism. White-label is a premium benefit for A+ customers who don't want A+ branding on *their* deliverables (they're already a customer).
 
 ## 8. Migration from localStorage
 
@@ -243,7 +245,7 @@ Anonymous users (no account) continue to use localStorage-only. It becomes the "
 Each slice is a shippable step:
 
 1. **Auth + users table only.** Add sign in / sign up UI. Nothing else changes — app still uses localStorage. User's email shows in the nav bar. De-risks auth integration before any data moves.
-2. **Projects table + migration prompt.** Signed-in users get their project saved to the cloud on first edit. Anonymous users unchanged. Free-tier user: 1 project cap; exceeding it requires premium or deleting the old one.
+2. **Projects table + migration prompt.** Signed-in users get their project saved to the cloud on first edit. Anonymous users unchanged. All signed-in users (free or A+) get unlimited projects — the gate is at features, not capacity.
 3. **Rooms + groups tables.** Full project structure in the DB. Client becomes a thin editor over the DB state. Zustand store still exists but hydrates from the DB instead of localStorage.
 4. **Sharing.** Share-link generation, shared-with-me list, access-level enforcement.
 5. **Premium features.** White-label PDF, multiple saved projects, customer-scoped defaults. Invite-code redemption UI. A+ staff admin UI for granting tiers.
@@ -251,13 +253,17 @@ Each slice is a shippable step:
 
 Each step is independently testable and independently rollback-able.
 
-## 11. Open decisions
+## 11. Resolved decisions (2026-04-21)
 
-1. **Free-tier cloud sync — zero or one project?** One project in the cloud (even free) makes the product feel complete; zero (localStorage only) makes the premium upgrade more meaningful. Recommendation: **one** cloud project free; unlimited for A+ customers.
-2. **Invite code scope — single-use or reusable?** Single-use is safer (one code = one seat); reusable "A+ launch 2026" style codes are easier to distribute. Recommendation: **single-use by default**, reusable codes with max-redemptions counter as a future option.
-3. **Hard delete vs. soft delete.** Soft-delete with `deleted_at` makes "oops" recovery trivial; hard-delete is simpler. Recommendation: **soft-delete** for projects, hard for everything else (rooms, groups — always cascaded from project).
-4. **Library data in DB or code?** Space types / requirements / IES targets are seeded constants today. Moving them to DB tables unlocks admin-UI editing but adds migration complexity for every library change. Recommendation: **keep as code constants for v1**; revisit when the library needs frequent non-developer edits.
-5. **Seeded vs. curated defaults:** ties back to Phase 1 Q4 — is the space-type default lookup reviewed-by-Chad or generic? With a backend, A+ can curate *centrally* and everyone benefits automatically. Recommendation: **A+ staff curate a shared default library**; individual customers override per-company in `customer_space_type_defaults`.
+1. **Free-tier capacity: unlimited projects.** Strategic call: A+ makes money on lighting sales and design/build jobs, not software subscriptions. Free gets unlimited cloud-saved projects + cross-device sync + branded PDF exports + read-only share links. The product's job is lead generation, brand authority, and market intelligence; capping free would undercut all three. Premium (A+ customer tier) is relational — unlocks white-label exports, saved project templates, per-company defaults, and edit-level sharing.
+
+2. **Invite codes: single-use default + reusable codes with a redemption cap.** Single-use (`APLUS-2026-AC5X` → redeems once) is the primary flow for granting A+ customer tier. Reusable codes with a max-redemptions counter (`TRADESHOW-SPRING-2026` good for 50 signups) exist for events and launches. Simple admin screen for A+ staff: purpose + expiry + cap → code to paste into email.
+
+3. **Soft-delete projects; cascade hard-delete for children.** Projects get a `deleted_at` column so "oops" recovery is trivial. Rooms, functional groups, and per-project jsonb state hard-delete via `on delete cascade` when the project is hard-deleted (purge step). A separate admin/settings action lets users purge their own soft-deleted projects permanently.
+
+4. **Library stays in code for v1 of the backend migration; plan to move to DB in Phase 2b/3.** Rationale: if A+ stays Michigan-only, code works fine forever. If A+ commits to multi-state + local amendments, the library *has* to move to the DB — otherwise every new jurisdiction bottlenecks on developer time. The `Requirement` and `SpaceType` types already work unchanged whether they come from TS constants or a DB query, so the migration is additive. Trigger: when A+ commits to a second jurisdiction, fast-follow with the library-in-DB work.
+
+5. **A+ staff centrally curate the defaults library; A+ customers override per-company.** The `users` and `customer_space_type_defaults` tables (§5) are shaped for this. A+ staff edits propagate to all users automatically; customer-scoped rows override the central defaults for that customer's projects only. Free-tier users always see the central A+ library.
 
 ## 12. What this plan does NOT do
 
