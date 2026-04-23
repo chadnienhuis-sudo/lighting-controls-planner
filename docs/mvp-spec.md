@@ -15,8 +15,11 @@ The tool ships as a free public web app for lead generation. A premium tier — 
 Part of the **A+ Lighting Advantage** product package. The tool:
 - Fills a real gap: design/build jobs frequently lack engineered controls narratives (contractors aren't sophisticated enough to write them; no engineer was involved)
 - Generates SEO/links/leads back to A+ Lighting
-- Reinforces the walled garden: premium features are an A+ customer benefit
 - Differentiates A+ from distributor competitors offering only static design services
+
+**Free is intentionally generous; premium is relational.** A+ makes money on lighting sales and design/build wins, not software subscriptions. So the free tier gives every signed-in user unlimited cloud-saved projects, cross-device sync, branded PDF exports, and read-only share links — the product's strategic job is lead generation, brand authority, and market intelligence, all of which get undercut by capacity caps. The premium (A+ customer) tier unlocks *relationship* perks: white-label exports, saved project templates, per-company default overrides, and edit-level collaboration. See [`backend-migration-plan.md`](backend-migration-plan.md) §7 and §11 resolution 1 for the detailed feature matrix and the reasoning behind the shift away from the earlier "walled garden" framing.
+
+> Note: §4.6 below still lists the pre-shift premium feature set (product mapping, saved projects, branded exports, budget rollup, extended IES). That list is superseded by the `backend-migration-plan.md` §7 matrix; a follow-up pass should re-sync §4 of this spec to match.
 
 ## 3. Core Concepts
 
