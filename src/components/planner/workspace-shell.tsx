@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
@@ -12,7 +12,11 @@ import {
   Download,
   Trash2,
 } from "lucide-react";
+import { toast } from "sonner";
 import { rehydrateProjectStore, useProjectStore } from "@/lib/project-store";
+import { useAuth } from "@/lib/supabase/auth-context";
+import { softDeleteProject } from "@/lib/supabase/project-sync";
+import { isUuid } from "@/lib/supabase/project-mapper";
 import { buttonVariants } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
@@ -33,6 +37,9 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
   const hasHydrated = useProjectStore((s) => s.hasHydrated);
   const project = useProjectStore((s) => s.project);
   const clearProject = useProjectStore((s) => s.clearProject);
+  const { status: authStatus } = useAuth();
+  const isSignedIn = authStatus === "signed-in";
+  const [clearing, setClearing] = useState(false);
 
   useEffect(() => {
     void rehydrateProjectStore();
@@ -100,13 +107,30 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
     },
   ];
 
-  function handleClearProject() {
+  async function handleClearProject() {
+    if (!project) return;
     const confirmed = window.confirm(
-      `Discard "${project?.name ?? "this project"}"? This cannot be undone — projects aren't saved until premium is available.`,
+      isSignedIn
+        ? `Remove "${project.name}" from your projects? It will be soft-deleted (recoverable for a while).`
+        : `Discard "${project.name}"? This cannot be undone — anonymous projects aren't saved anywhere but this device.`,
     );
     if (!confirmed) return;
-    clearProject();
-    router.replace("/planner/new");
+    setClearing(true);
+    try {
+      if (isSignedIn && isUuid(project.id)) {
+        await softDeleteProject(project.id);
+      }
+      clearProject();
+      try {
+        localStorage.removeItem("lcp-active-project");
+      } catch {}
+      router.replace(isSignedIn ? "/planner" : "/planner/new");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Couldn't remove project";
+      toast.error("Failed to remove project", { description: message });
+    } finally {
+      setClearing(false);
+    }
   }
 
   return (
@@ -153,18 +177,20 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
         <div className="p-3 space-y-2">
           <button
             type="button"
-            onClick={handleClearProject}
+            onClick={() => void handleClearProject()}
+            disabled={clearing}
             className={cn(
               buttonVariants({ variant: "ghost", size: "sm" }),
               "w-full justify-start text-muted-foreground hover:text-destructive",
             )}
           >
             <Trash2 className="size-3.5" />
-            Clear project
+            {clearing ? "Removing…" : isSignedIn ? "Remove project" : "Clear project"}
           </button>
           <div className="text-[10px] text-muted-foreground px-2 leading-relaxed">
-            Projects stored on this device only. Premium (coming soon) adds saved projects
-            across devices.
+            {isSignedIn
+              ? "Saved to your account and synced across devices."
+              : "Projects stored on this device only. Sign in to save to your account."}
           </div>
         </div>
       </aside>
