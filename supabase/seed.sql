@@ -1,0 +1,7 @@
+-- Seed data for the local Supabase stack.
+--
+-- Kept intentionally empty in Phase 1 of the backend migration
+-- (docs/backend-migration-plan.md §10 step 1). Add starter invite_codes
+-- or a staff user here when you want a reproducible local dev dataset;
+-- anything written must be idempotent since `supabase db reset` re-runs
+-- this file.
