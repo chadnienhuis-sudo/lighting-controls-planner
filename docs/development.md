@@ -137,6 +137,21 @@ npm run lint    # eslint
 npm run build   # production build — run before opening a PR if you changed non-trivial code
 ```
 
+### Sign-in routes
+
+Phase-1 auth UI (magic-link only) lives at:
+
+- `/sign-in` — the entry page linked from the header and the landing page.
+- `/auth/callback` — the landing URL Supabase redirects to after a user clicks their magic-link email. A client-side handler completes the session and forwards to the home page (or back to `/sign-in?error=...` if the link was bad).
+
+For the magic link to actually work, every origin that serves the app must be listed on the Supabase dashboard under **Authentication → URL Configuration → Redirect URLs**:
+
+- `http://localhost:3200/**`
+- `https://lighting-controls-planner.vercel.app/**` (production)
+- `https://lighting-controls-planner-*.vercel.app/**` (Vercel PR previews)
+
+Without these, Supabase drops the callback and the user lands on a Supabase-hosted error page instead of getting signed in.
+
 ## Troubleshooting
 
 - **`supabase start` hangs or fails** — confirm Docker Desktop is running and its WSL integration is enabled. On Windows, the first boot of Docker after login takes a minute; give it time.
