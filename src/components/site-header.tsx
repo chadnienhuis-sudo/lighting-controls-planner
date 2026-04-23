@@ -1,6 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { buttonVariants } from "@/components/ui/button";
+import { NavAuth } from "@/components/auth/nav-auth";
 
 export function SiteHeader() {
   return (
@@ -35,6 +36,7 @@ export function SiteHeader() {
           <Link href="/planner/new" className={buttonVariants({ size: "sm" })}>
             Start a Project
           </Link>
+          <NavAuth />
         </nav>
       </div>
     </header>
