@@ -17,9 +17,14 @@ import type {
   SectionOverrides,
 } from "@/lib/types";
 
+export type SyncStatus = "idle" | "saving" | "saved" | "error" | "offline";
+
 interface ProjectState {
   project: Project | null;
   hasHydrated: boolean;
+  syncStatus: SyncStatus;
+  syncError: string | null;
+  setSyncStatus: (status: SyncStatus, error?: string | null) => void;
   setProject: (project: Project) => void;
   clearProject: () => void;
   updateProject: (patch: Partial<Project>) => void;
@@ -45,9 +50,14 @@ export const useProjectStore = create<ProjectState>()(
     (set) => ({
       project: null,
       hasHydrated: false,
+      syncStatus: "idle",
+      syncError: null,
+
+      setSyncStatus: (status, error = null) =>
+        set({ syncStatus: status, syncError: error }),
 
       setProject: (project) => set({ project: touch(project) }),
-      clearProject: () => set({ project: null }),
+      clearProject: () => set({ project: null, syncStatus: "idle", syncError: null }),
 
       updateProject: (patch) =>
         set((s) => (s.project ? { project: touch({ ...s.project, ...patch }) } : s)),

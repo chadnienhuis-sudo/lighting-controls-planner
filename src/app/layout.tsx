@@ -4,6 +4,8 @@ import "./globals.css";
 import { SiteHeader } from "@/components/site-header";
 import { SiteFooter } from "@/components/site-footer";
 import { AuthProvider } from "@/lib/supabase/auth-context";
+import { ProjectSyncProvider } from "@/lib/supabase/project-sync-provider";
+import { Toaster } from "@/components/ui/sonner";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -57,10 +59,13 @@ export default function RootLayout({
       </head>
       <body className="min-h-full flex flex-col bg-background text-foreground">
         <AuthProvider>
-          <SiteHeader />
-          <main className="flex-1 flex flex-col">{children}</main>
-          <SiteFooter />
+          <ProjectSyncProvider>
+            <SiteHeader />
+            <main className="flex-1 flex flex-col">{children}</main>
+            <SiteFooter />
+          </ProjectSyncProvider>
         </AuthProvider>
+        <Toaster />
       </body>
     </html>
   );

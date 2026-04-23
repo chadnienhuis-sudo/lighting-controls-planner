@@ -10,7 +10,7 @@ export interface NewProjectInput {
 export function createBlankProject(input: NewProjectInput): Project {
   const now = new Date().toISOString();
   return {
-    id: `proj_${nanoid(10)}`,
+    id: crypto.randomUUID(),
     name: input.name,
     location: input.location,
     codeVersion: "ASHRAE-90.1-2019",
